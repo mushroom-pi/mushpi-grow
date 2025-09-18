@@ -1,9 +1,10 @@
-import dht, time
+import dht, time, machine
+
 from .state import status
 
 class DHTReader:
     def __init__(self, dht_pin):
-        self.d = dht.DHT11(dht_pin)  # swap to DHT22 if you upgrade
+        self.d = dht.DHT11(machine.Pin(dht_pin))
 
     def plausible(self, t, h):
         return (t is not None and h is not None
@@ -14,6 +15,8 @@ class DHTReader:
             self.d.measure()
             t = self.d.temperature()
             h = self.d.humidity()
+            print("Temperature: ", t)  # Print temperature
+            print("Humidity: ", h)  # Print humidity
             status["temperature"] = t
             status["humidity"] = h
             if self.plausible(t, h):

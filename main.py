@@ -22,6 +22,6 @@ sensor = DHTReader(io.dht_pin)
 async def main():
     asyncio.create_task(control_loop(cfg, wlan, io, sensor))
     asyncio.create_task(announce_loop(cfg, wlan))
-    await start_server(cfg, wlan, io)
+    await start_server(cfg, wlan, io, sensor)
 
 asyncio.run(main())

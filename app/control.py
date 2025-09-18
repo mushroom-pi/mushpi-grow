@@ -1,4 +1,4 @@
-import uasyncio as asyncio, time
+import uasyncio as asyncio
 from .state import status, setpoints
 
 async def control_loop(cfg, wlan, io, sensor):
