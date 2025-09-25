@@ -1,10 +1,10 @@
 import dht, time, machine
 
-from .state import status
+from .state import status, devices
 
 class DHTReader:
-    def __init__(self, dht_pin):
-        self.d = dht.DHT11(machine.Pin(dht_pin))
+    def __init__(self):
+        self.d = dht.DHT11(machine.Pin(devices["pins"]["dht"]))
 
     def plausible(self, t, h):
         return (t is not None and h is not None
@@ -26,3 +26,7 @@ class DHTReader:
                 status["last_sensor_error"] = "implausible_reading"
         except Exception as e:
             status["last_sensor_error"] = str(e)
+
+    def remap(self, pins):
+        devices["pins"]["dht"] = int(pins["dht"])
+        self.__init__()

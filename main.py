@@ -8,6 +8,7 @@ from app.sensor import DHTReader
 from app.control import control_loop
 from app.announce import announce_loop
 from app.api import start_server
+from app.state import devices
 
 cfg = load_config()
 boot_ts = time.time()
@@ -16,8 +17,8 @@ boot_ts = time.time()
 wlan = connect_wifi(cfg["wifi"]["ssid"], cfg["wifi"]["password"], cfg["device_name"])
 
 # Hardware & sensor
-io = IO(cfg)
-sensor = DHTReader(io.dht_pin)
+io = IO()
+sensor = DHTReader()
 
 async def main():
     asyncio.create_task(control_loop(cfg, wlan, io, sensor))

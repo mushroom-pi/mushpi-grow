@@ -1,7 +1,7 @@
 import time
 from microdot import Microdot, Response
 
-from .state import status, setpoints, boot_ts
+from .state import status, setpoints, boot_ts, devices
 
 def make_app(cfg, wlan, io, sensor):
     app = Microdot()
@@ -119,23 +119,45 @@ def make_app(cfg, wlan, io, sensor):
             data = req.json
             if "temperature" in data: setpoints["temperature"] = int(data["temperature"])
             if "humidity" in data:    setpoints["humidity"]    = int(data["humidity"])
-            return {"ok": True, "setpoints": setpoints}
+            return setpoints
         except Exception as e:
-            return {"ok": False, "error": str(e)}, 400
-        
+            return { "error": str(e)}, 400
+
+    @app.get('/devices')
+    def _getdevices(req): return devices
+
+    @app.post('/devices')
+    def _setdevices(req):
+        try:
+            data = req.json
+            if "pins" in data:
+                pins = data["pins"]
+                if "dht" in pins: sensor.remap(pins)
+                if "humidifier" in pins: io.remap('humidifier', pins)
+                if "fan" in pins: io.remap('fan', pins)
+                if "heater" in pins: io.remap('heater', pins)
+            if "active_high" in data: devices["active_high"] = bool(data["active_high"])
+            return devices
+        except Exception as e:
+            return { "error": str(e) }, 400
+
     @app.post('/outputs')
     def _setoutputs(req):
         try:
             data = req.json or {}
-            if "humidifier" or "fan" or "heater" not in data:
-                return ({ "ok": False, "error": 'the body needs to include humidifier, fan and heater status (true/false)' }, 422)
+            if "humidifier" not in data:
+                return ({ "ok": False, "error": 'the body needs to include "humidifier" status (true/false)' }, 422)
+            if "fan" not in data:
+                return ({ "ok": False, "error": 'the body needs to include "fan" status (true/false)' }, 422)
+            if "heater" not in data:
+                return ({ "ok": False, "error": 'the body needs to include "heater" status (true/false)' }, 422)
 
             fan = bool(data["fan"])
             humidifier = bool(data["humidifier"])
             heater = bool(data["heater"])
             io.write(io.hum, humidifier); status["humidifier"] = humidifier
             io.write(io.fan, fan); status["fan"] = fan
-            io.write(io.heater, heater); status["heater"] = heater
+            io.write(io.heat, heater); status["heater"] = heater
 
             return { "ok": True, "fan": fan, "humidifier": humidifier, "heater": heater }
         except Exception as e:

@@ -1,21 +1,21 @@
 from machine import Pin
 import utime as time
 
+from .state import devices
+
 class IO:
-    def __init__(self, cfg):
-        self.active_high = bool(cfg["active_high"])
-        pins = cfg["pins"]
+    def __init__(self):
+        pins = devices["pins"]
         self.dht_pin = Pin(pins["dht"])
+        self.hum = Pin(pins["humidifier"], Pin.OUT, value=self._off())
         self.fan = Pin(pins["fan"], Pin.OUT, value=self._off())
-        self.hum = Pin(pins["humid"], Pin.OUT, value=self._off())
         self.heat = Pin(pins["heater"], Pin.OUT, value=self._off())
         self.led_onboard = Pin('LED', Pin.OUT, value=self._off())
 
-    def _on(self):  return 1 if self.active_high else 0
-    def _off(self): return 0 if self.active_high else 1
+    def _on(self):  return 1 if devices["active_high"] else 0
+    def _off(self): return 0 if devices["active_high"] else 1
 
-    def write(self, pin, is_on):
-        
+    def write(self, pin, is_on):     
         try:
             pin.value(self._on() if is_on else self._off())
             return True
@@ -27,3 +27,8 @@ class IO:
             return pin.value() == self._on()
         except:
             return False
+        
+    def remap(self, device, pins):
+        devices["pins"][device] = int(pins[device])
+        self.__init__()
+        

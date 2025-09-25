@@ -8,3 +8,7 @@ status = {
     "devices_available": {"fan": None, "humidifier": None, "heater": None},
 }
 boot_ts = 0  # set at runtime
+devices = {
+    "pins": { "dht": 4, "humidifier": 6, "fan": 7, "heater": 8 },
+    "active_high": False,
+}
