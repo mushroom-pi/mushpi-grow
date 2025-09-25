@@ -7,53 +7,6 @@ def make_app(cfg, wlan, io, sensor):
     app = Microdot()
     Response.default_content_type = 'application/json'
 
-    @app.get('/status')
-    def _status(req):
-        """
-        Returns readings + current device on/off state.
-        NOTE: leaves the control loop as the source of truth for reads.
-              If you want an on-demand fresh read, call with ?force=1
-        """
-        try:
-            # Optional fresh read: /status?force=1
-            if req.args.get('force'):
-                sensor.d.measure()
-                status["temperature"] = sensor.d.temperature()
-                status["humidity"] = sensor.d.humidity()
-                status["last_sensor_ok_at"] = time.time()
-                status["last_sensor_error"] = None
-
-            now = time.time()
-            last_ok = status["last_sensor_ok_at"]
-            age = int(now - last_ok) if last_ok else None
-            sensor_ok = (last_ok is not None) and (status["last_sensor_error"] is None)
-
-            return {
-                "ok": sensor_ok,   # “are readings currently healthy?”
-                "sensors": {
-                    "dht": {
-                        "temperature": status["temperature"],
-                        "humidity": status["humidity"],
-                        "last_ok_age_s": age,
-                        "last_error": status["last_sensor_error"],
-                    }
-                },
-                "outputs": {
-                    "devices": {
-                        "fan": status["fan"],
-                        "humidifier": status["humidifier"],
-                        "heater": status["heater"],
-                    }
-                },
-                "setpoints": {
-                    "temperature": setpoints["temperature"],
-                    "humidity": setpoints["humidity"],
-                }
-            }
-        except Exception as e:
-            status["last_sensor_error"] = str(e)
-            return {"ok": False, "error": status["last_sensor_error"]}, 500
-
     @app.get('/health')
     def _health(req):
         now = time.time()
@@ -110,6 +63,53 @@ def make_app(cfg, wlan, io, sensor):
             },
         }
 
+    @app.get('/status')
+    def _status(req):
+        """
+        Returns readings + current device on/off state.
+        NOTE: leaves the control loop as the source of truth for reads.
+              If you want an on-demand fresh read, call with ?force=1
+        """
+        try:
+            # Optional fresh read: /status?force=1
+            if req.args.get('force'):
+                sensor.d.measure()
+                status["temperature"] = sensor.d.temperature()
+                status["humidity"] = sensor.d.humidity()
+                status["last_sensor_ok_at"] = time.time()
+                status["last_sensor_error"] = None
+
+            now = time.time()
+            last_ok = status["last_sensor_ok_at"]
+            age = int(now - last_ok) if last_ok else None
+            sensor_ok = (last_ok is not None) and (status["last_sensor_error"] is None)
+
+            return {
+                "ok": sensor_ok,   # “are readings currently healthy?”
+                "sensors": {
+                    "dht": {
+                        "temperature": status["temperature"],
+                        "humidity": status["humidity"],
+                        "last_ok_age_s": age,
+                        "last_error": status["last_sensor_error"],
+                    }
+                },
+                "outputs": {
+                    "devices": {
+                        "fan": status["fan"],
+                        "humidifier": status["humidifier"],
+                        "heater": status["heater"],
+                    }
+                },
+                "setpoints": {
+                    "temperature": setpoints["temperature"],
+                    "humidity": setpoints["humidity"],
+                }
+            }
+        except Exception as e:
+            status["last_sensor_error"] = str(e)
+            return {"ok": False, "error": status["last_sensor_error"]}, 500
+
     @app.get('/setpoints')
     def _getsp(req): return setpoints
 
@@ -122,6 +122,25 @@ def make_app(cfg, wlan, io, sensor):
             return {"ok": True, "setpoints": setpoints}
         except Exception as e:
             return {"ok": False, "error": str(e)}, 400
+        
+    @app.post('/outputs')
+    def _setoutputs(req):
+        try:
+            data = req.json or {}
+            if "humidifier" or "fan" or "heater" not in data:
+                return ({ "ok": False, "error": 'the body needs to include humidifier, fan and heater status (true/false)' }, 422)
+
+            fan = bool(data["fan"])
+            humidifier = bool(data["humidifier"])
+            heater = bool(data["heater"])
+            io.write(io.hum, humidifier); status["humidifier"] = humidifier
+            io.write(io.fan, fan); status["fan"] = fan
+            io.write(io.heater, heater); status["heater"] = heater
+
+            return { "ok": True, "fan": fan, "humidifier": humidifier, "heater": heater }
+        except Exception as e:
+            return { "ok": False, "error": str(e) }, 400
+
 
     @app.post('/probe')
     async def _probe(req):
