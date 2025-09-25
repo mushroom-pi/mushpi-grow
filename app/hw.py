@@ -32,3 +32,22 @@ class IO:
         devices["pins"][device] = int(pins[device])
         self.__init__()
         
+    def led_on(self):
+        self.led_onboard.value(1)
+
+    def led_off(self):
+        self.led_onboard.value(0)
+
+    def led_blink(self, time_ms = 200):
+        time_s = time_ms / 1000
+        while True:
+            self.led_on()
+            time.sleep(time_s)
+            self.lef_off()
+            time.sleep(time_s)
+
+    def all_off(self):
+        self.led_off()
+        self.hum(self._off())
+        self.fan(self._off())
+        self.heat(self._off())

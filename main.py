@@ -8,21 +8,31 @@ from app.sensor import DHTReader
 from app.control import control_loop
 from app.announce import announce_loop
 from app.api import start_server
-from app.state import devices
+from app.shutdown import graceful_shutdown
 
 cfg = load_config()
 boot_ts = time.time()
 
-# Bring up Wi-Fi
-wlan = connect_wifi(cfg["wifi"]["ssid"], cfg["wifi"]["password"], cfg["device_name"])
-
 # Hardware & sensor
 io = IO()
 sensor = DHTReader()
+
+# Bring up Wi-Fi
+wlan = connect_wifi(cfg["wifi"]["ssid"], cfg["wifi"]["password"], cfg["device_name"], io)
 
 async def main():
     asyncio.create_task(control_loop(cfg, wlan, io, sensor))
     # asyncio.create_task(announce_loop(cfg, wlan))
     await start_server(cfg, wlan, io, sensor)
 
-asyncio.run(main())
+try:
+    asyncio.run(main())
+except KeyboardInterrupt:
+    print("KeyboardInterrupt — shutting down...")
+except Exception as e:
+    import sys
+    sys.print_exception(e)
+finally:
+    # Run an async cleanup in a fresh event loop
+    asyncio.run(graceful_shutdown(wlan, io, sensor))
+    print("Shutdown complete.")

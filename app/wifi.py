@@ -1,6 +1,6 @@
 import network, time
 
-def connect_wifi(ssid, password, hostname=None):
+def connect_wifi(ssid, password, hostname=None, io=None):
     wlan = network.WLAN(network.STA_IF)
     # Set host name
     try:
@@ -10,8 +10,11 @@ def connect_wifi(ssid, password, hostname=None):
     if not wlan.isconnected():
         wlan.connect(ssid, password)
         for _ in range(100):          # ~10s
-            if wlan.isconnected(): break
+            if wlan.isconnected():
+                if io and hasattr(io, "led_on"): io.led_on()
+                break
             time.sleep_ms(100)
     ip = wlan.ifconfig()[0] if wlan.isconnected() else None
-    print("WiFi:", "up" if ip else "down", ip)
+
+    print("WiFi:", "up" if ip else "down", ip) 
     return wlan
