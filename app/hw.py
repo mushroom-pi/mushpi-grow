@@ -11,6 +11,7 @@ class IO:
         self.fan = Pin(pins["fan"], Pin.OUT, value=self._off())
         self.heat = Pin(pins["heater"], Pin.OUT, value=self._off())
         self.led_onboard = Pin('LED', Pin.OUT, value=self._off())
+        self.led_on()
 
     def _on(self):  return 1 if devices["active_high"] else 0
     def _off(self): return 0 if devices["active_high"] else 1
@@ -38,12 +39,12 @@ class IO:
     def led_off(self):
         self.led_onboard.value(0)
 
-    def led_blink(self, time_ms = 200):
+    def led_blink(self, time_ms=200):
         time_s = time_ms / 1000
         while True:
             self.led_on()
             time.sleep(time_s)
-            self.lef_off()
+            self.led_off()
             time.sleep(time_s)
 
     def all_off(self):

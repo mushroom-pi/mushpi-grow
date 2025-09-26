@@ -27,3 +27,13 @@ Extra packages can be added as single files in the `lib/` folder at the root of 
 
 - `urequests.py`: download from [Github](https://github.com/lucien2k/wipy-urllib/blob/master/urequests.py).
 - `microdot.py`: download from [Github](https://github.com/miguelgrinberg/microdot/blob/main/src/microdot/microdot.py).
+
+## How to use
+
+### LED indicator
+
+This software allows minimal communication through the Pico's intergrated LED. When the software starts executing, the LED will ALWAYS turn on. After that first flash, the possible LED statuses are:
+
+- LED OFF: The software has been executed, but the provided Wifi credentials haven't allowed connecting the device to the internet. Review the Wifi settings if you want to access the unit's records.
+- LED ON: The device has successfully connected to the provided Wifi, but hasn't been able to communicate with the local hub.
+- LED BLINKING: The unit is connected to the Wifi and can see and communicate with the local hub.

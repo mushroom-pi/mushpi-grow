@@ -62,7 +62,7 @@ def announce_once(cfg, wlan, extra=None, timeout_s=3):
         return False
 
 
-async def announce_loop(cfg, wlan, interval_s=60, first_delay_s=2):
+async def announce_loop(cfg, wlan, io=None, interval_s=60, first_delay_s=2):
     """
     Periodic heartbeat: announces at startup (after first_delay_s),
     then every interval_s; on failure, retries sooner (10s).
@@ -70,6 +70,7 @@ async def announce_loop(cfg, wlan, interval_s=60, first_delay_s=2):
     await asyncio.sleep(first_delay_s)
     while True:
         ok = announce_once(cfg, wlan)
+        if ok and io and hasattr(io, "led_blink"): io.led_blink()
         await asyncio.sleep(10 if not ok else interval_s)
 
 

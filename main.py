@@ -10,19 +10,20 @@ from app.announce import announce_loop
 from app.api import start_server
 from app.shutdown import graceful_shutdown
 
-cfg = load_config()
 boot_ts = time.time()
 
 # Hardware & sensor
-io = IO()
+io = IO() ## This will turn the LED ON
 sensor = DHTReader()
 
+cfg = load_config()
+
 # Bring up Wi-Fi
-wlan = connect_wifi(cfg["wifi"]["ssid"], cfg["wifi"]["password"], cfg["device_name"], io)
+wlan = connect_wifi(cfg["wifi"]["ssid"], cfg["wifi"]["password"], cfg["device_name"], io) ## This will start by turning the ledd off
 
 async def main():
     asyncio.create_task(control_loop(cfg, wlan, io, sensor))
-    # asyncio.create_task(announce_loop(cfg, wlan))
+    asyncio.create_task(announce_loop(cfg, wlan, io))
     await start_server(cfg, wlan, io, sensor)
 
 try:

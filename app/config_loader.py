@@ -5,8 +5,6 @@ _DEFAULT = {
     "hub_url": "",
     "device_name": "PicoDevice",
     "api_port": 5000,
-    "pins": {"dht": 4, "fan": 16, "humid": 17, "heater": 18},
-    "active_high": True,
     "control": {"period_s": 5, "hyst_hum": 5, "hyst_temp": 1},
 }
 
