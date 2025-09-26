@@ -1,5 +1,6 @@
 from machine import Pin
 import utime as time
+import uasyncio as asyncio
 
 from .state import devices
 
@@ -11,6 +12,9 @@ class IO:
         self.fan = Pin(pins["fan"], Pin.OUT, value=self._off())
         self.heat = Pin(pins["heater"], Pin.OUT, value=self._off())
         self.led_onboard = Pin('LED', Pin.OUT, value=self._off())
+        self._hb_task = None
+        self._hb_enabled = False
+        self._hb_period_ms = 1000
         self.led_on()
 
     def _on(self):  return 1 if devices["active_high"] else 0
@@ -33,22 +37,64 @@ class IO:
         devices["pins"][device] = int(pins[device])
         self.__init__()
         
-    def led_on(self):
-        self.led_onboard.value(1)
+    def led_on(self): self.led_onboard.value(1)
 
-    def led_off(self):
+    def led_off(self): self.led_onboard.value(0)
+
+    def start_led_heartbeat(self, period_ms=1000, stop_event=None):
+        """Start a continuous, non-blocking blink. Call from within the event loop."""
+        # cancel existing heartbeat if any
+        if self._hb_task:
+            try: self._hb_task.cancel()
+            except: pass
+            self._hb_task = None
+
+        self._hb_enabled = True
+        self._hb_period_ms = max(2, int(period_ms))
+        # schedule background task
+        self._hb_task = asyncio.create_task(self._heartbeat_loop(stop_event))
+
+    def set_led_heartbeat_period(self, period_ms):
+        """Change heartbeat speed on the fly."""
+        self._hb_period_ms = max(2, int(period_ms))
+
+    def stop_led_heartbeat(self):
+        """Stop the heartbeat and turn LED off."""
+        self._hb_enabled = False
+        if self._hb_task:
+            try: self._hb_task.cancel()
+            except: pass
+            self._hb_task = None
         self.led_onboard.value(0)
 
-    def led_blink(self, time_ms=200):
-        time_s = time_ms / 1000
-        while True:
-            self.led_on()
-            time.sleep(time_s)
-            self.led_off()
-            time.sleep(time_s)
+    async def _heartbeat_loop(self, stop_event):
+        try:
+            while self._hb_enabled and not (stop_event and stop_event.is_set()):
+                half = max(1, self._hb_period_ms // 2)
+                self.led_onboard.value(1); await asyncio.sleep_ms(half)
+                self.led_onboard.value(0); await asyncio.sleep_ms(half)
+        finally:
+            self.led_onboard.value(0)
+            self._hb_task = None
+
+    # Optional: short, non-blocking flash for events (announce ok, etc.)
+    def led_flash(self, cycles=2, period_ms=120):
+        asyncio.create_task(self._flash_worker(cycles, period_ms))
+
+    async def _flash_worker(self, cycles, period_ms):
+        half = max(1, period_ms // 2)
+        for _ in range(cycles):
+            self.led_onboard.value(1); await asyncio.sleep_ms(half)
+            self.led_onboard.value(0); await asyncio.sleep_ms(half)
+
+    def led_solid(self, on=True):
+        """Force LED steady state (cancels heartbeat)."""
+        self.stop_led_heartbeat()
+        self.led_onboard.value(1 if on else 0)
 
     def all_off(self):
         self.led_off()
         self.hum(self._off())
         self.fan(self._off())
         self.heat(self._off())
+        self.stop_led_heartbeat()

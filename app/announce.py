@@ -1,11 +1,11 @@
-import uasyncio as asyncio
 import usocket
+import uasyncio as asyncio
 
-# Use MicroPython's lightweight HTTP client
+# Use MicroPython's urequests (upload to /lib if missing)
 try:
     import urequests as requests
 except ImportError:
-    requests = None  # We'll raise a clear error if it's missing
+    requests = None  # we'll raise a clear error on use
 
 
 def _ip(wlan):
@@ -18,69 +18,99 @@ def _ip(wlan):
 def payload(cfg, wlan, extra=None):
     data = {
         "name": cfg["device_name"],
-        "ip": _ip(wlan),
+        "host": _ip(wlan),
         "port": cfg["api_port"],
-        "capabilities": ["status", "setpoints", "health", "probe"],
+        # "capabilities": ["status", "setpoints", "health", "probe"],
     }
     if extra and isinstance(extra, dict):
         data.update(extra)
     return data
 
 
-def announce_once(cfg, wlan, extra=None, timeout_s=3):
+def announce_once_blocking(cfg, wlan, io=None, extra=None, timeout_s=2):
     """
-    One-shot POST to the hub. Returns True on success, False otherwise.
-    Uses urequests with json= (so Content-Type is set).
+    One-shot POST to hub using urequests. Blocking (for up to timeout_s).
+    Returns True on 2xx, False otherwise.
     """
     if requests is None:
-        raise RuntimeError(
-            "urequests not found. Upload urequests.py to /lib on the Pico."
-        )
+        raise RuntimeError("urequests not found. Upload urequests.py to /lib on the Pico.")
 
-    ip = _ip(wlan)
-    if not ip:
-        print("announce: no IP yet")
+    # Must have Wi-Fi & IP
+    if not wlan or not (hasattr(wlan, "isconnected") and wlan.isconnected()) or not _ip(wlan):
         return False
 
+    # Build payload
     body = payload(cfg, wlan, extra)
-    # Some urequests builds don't honor per-request timeout;
-    # set a global default to avoid hanging sockets.
+
+    # Set a small global socket timeout for this call; restore after
     try:
         usocket.setdefaulttimeout(timeout_s)
     except:
         pass
 
+    ok = False
     try:
-        r = requests.post(cfg["hub_url"], json=body)
-        # Read/close to free the socket
-        _ = r.text
-        r.close()
-        print("announce: ok", body.get("ip"))
-        return True
+        # Connection: close so sockets are freed promptly
+        r = requests.post(cfg["hub_url"], json=body, headers={"Connection": "close"})
+        # Read/close to release socket
+        try:
+            _ = r.text
+        finally:
+            r.close()
+
+        code = getattr(r, "status_code", None)
+        ok = (code is not None) and (200 <= int(code) < 300)
+
+        if ok:
+            print("announce: ok")
+        else:
+            print("announce: fail (status {})".format(code))
     except Exception as e:
-        print("announce: fail:", e)
-        return False
+        print("announce: exception:", e)
+        ok = False
+    finally:
+        try:
+            # Restore default (blocking) timeout
+            usocket.setdefaulttimeout(None)
+        except:
+            pass
+
+    return ok
 
 
-async def announce_loop(cfg, wlan, io=None, interval_s=60, first_delay_s=2):
+async def announce_then_retry_once(cfg, wlan, io=None, delay_s=60, timeout_s=2, stop_event=None):
     """
-    Periodic heartbeat: announces at startup (after first_delay_s),
-    then every interval_s; on failure, retries sooner (10s).
+    Try once now (blocking up to timeout_s). If it fails, wait delay_s and try once more.
+    Returns True if any attempt succeeded.
+    NOTE: Each attempt blocks the event loop briefly (<= timeout_s).
     """
-    await asyncio.sleep(first_delay_s)
-    while True:
-        ok = announce_once(cfg, wlan)
-        if ok and io and hasattr(io, "led_blink"): io.led_blink()
-        await asyncio.sleep(10 if not ok else interval_s)
+    if io and hasattr(io, "led_solid"):
+        io.led_solid(True)
 
+    ok = announce_once_blocking(cfg, wlan, io, timeout_s=timeout_s)
+    if ok:
+        if io:
+            io.led_flash(cycles=2, period_ms=120)
+            io.start_led_heartbeat(period_ms=800, stop_event=stop_event)
+        return True
 
-async def announce_on_boot(cfg, wlan, tries=3, gap_s=2):
-    """
-    Optional helper: call once from main() to try a few quick announces
-    right after Wi-Fi connects, before starting the loop.
-    """
-    for i in range(tries):
-        if announce_once(cfg, wlan):
-            return True
-        await asyncio.sleep(gap_s)
+    # wait, but stay cancelable
+    remaining = int(delay_s)
+    while remaining > 0:
+        if stop_event and stop_event.is_set():
+            return False
+        await asyncio.sleep(1)
+        remaining -= 1
+
+    # SECOND attempt: handle LED just like the first
+    ok = announce_once_blocking(cfg, wlan, timeout_s=timeout_s)
+    if ok:
+        if io:
+            io.led_flash(cycles=2, period_ms=120)
+            io.start_led_heartbeat(period_ms=800, stop_event=stop_event)
+        return True
+
+    # both failed → stay solid ON
+    if io and hasattr(io, "led_solid"):
+        io.led_solid(True)
     return False

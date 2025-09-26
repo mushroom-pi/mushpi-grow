@@ -6,14 +6,14 @@ from app.wifi import connect_wifi
 from app.hw import IO
 from app.sensor import DHTReader
 from app.control import control_loop
-from app.announce import announce_loop
+from app.announce import announce_then_retry_once
 from app.api import start_server
-from app.shutdown import graceful_shutdown
+from app.shutdown import graceful_shutdown, stop_event
 
 boot_ts = time.time()
 
 # Hardware & sensor
-io = IO() ## This will turn the LED ON
+io = IO() # This will turn the LED ON
 sensor = DHTReader()
 
 cfg = load_config()
@@ -22,8 +22,8 @@ cfg = load_config()
 wlan = connect_wifi(cfg["wifi"]["ssid"], cfg["wifi"]["password"], cfg["device_name"], io) ## This will start by turning the ledd off
 
 async def main():
+    asyncio.create_task(announce_then_retry_once(cfg, wlan, io, delay_s=60, timeout_s=2, stop_event=stop_event))
     asyncio.create_task(control_loop(cfg, wlan, io, sensor))
-    asyncio.create_task(announce_loop(cfg, wlan, io))
     await start_server(cfg, wlan, io, sensor)
 
 try:
