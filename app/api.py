@@ -1,17 +1,20 @@
 import time
 from microdot import Microdot, Response
 
-from .state import status, setpoints, boot_ts, devices
+from .state import status, setpoints, devices
+from .metrics import system_snapshot
 
 def make_app(cfg, wlan, io, sensor):
     app = Microdot()
     Response.default_content_type = 'application/json'
 
+    @app.get('/ping')
+    def _pin(req):
+        return
+
     @app.get('/health')
     def _health(req):
         now = time.time()
-        wifi_ok = bool(wlan.isconnected())
-        ip = wlan.ifconfig()[0] if wifi_ok else None
 
         # Sensor availability judged by recency of a plausible read
         last_ok = status["last_sensor_ok_at"]
@@ -36,13 +39,11 @@ def make_app(cfg, wlan, io, sensor):
         else:
             outputs_ok = None
 
-        overall_ok = (wifi_ok and sensor_ok and (outputs_ok is not False))
+        overall_ok = (sensor_ok and (outputs_ok is not False))
 
         return {
             "ok": overall_ok,
             "device": cfg["device_name"],
-            "uptime_s": int(now - boot_ts),
-            "wifi": {"connected": wifi_ok, "ip": ip},
 
             "sensors": {
                 "dht": {
@@ -61,9 +62,42 @@ def make_app(cfg, wlan, io, sensor):
                     "heater": dev_av.get("heater"),
                 },
             },
+
+            "system": system_snapshot(wlan),
         }
 
-    @app.get('/status')
+    @app.get('/setpoints')
+    def _getsp(req): return setpoints
+
+    @app.post('/setpoints')
+    def _setsp(req):
+        try:
+            data = req.json
+            if "temperature" in data: setpoints["temperature"] = int(data["temperature"])
+            if "humidity" in data:    setpoints["humidity"]    = int(data["humidity"])
+            return setpoints
+        except Exception as e:
+            return { "error": str(e)}, 400
+
+    @app.get('/devices')
+    def _getdevices(req): return devices
+
+    @app.post('/devices')
+    def _setdevices(req):
+        try:
+            data = req.json
+            if "pins" in data:
+                pins = data["pins"]
+                if "dht" in pins: sensor.remap(pins)
+                if "humidifier" in pins: io.remap('humidifier', pins)
+                if "fan" in pins: io.remap('fan', pins)
+                if "heater" in pins: io.remap('heater', pins)
+            if "active_high" in data: devices["active_high"] = bool(data["active_high"])
+            return devices
+        except Exception as e:
+            return { "error": str(e) }, 400
+        
+    @app.get('/devices/readings')
     def _status(req):
         """
         Returns readings + current device on/off state.
@@ -110,37 +144,6 @@ def make_app(cfg, wlan, io, sensor):
             status["last_sensor_error"] = str(e)
             return {"ok": False, "error": status["last_sensor_error"]}, 500
 
-    @app.get('/setpoints')
-    def _getsp(req): return setpoints
-
-    @app.post('/setpoints')
-    def _setsp(req):
-        try:
-            data = req.json
-            if "temperature" in data: setpoints["temperature"] = int(data["temperature"])
-            if "humidity" in data:    setpoints["humidity"]    = int(data["humidity"])
-            return setpoints
-        except Exception as e:
-            return { "error": str(e)}, 400
-
-    @app.get('/devices')
-    def _getdevices(req): return devices
-
-    @app.post('/devices')
-    def _setdevices(req):
-        try:
-            data = req.json
-            if "pins" in data:
-                pins = data["pins"]
-                if "dht" in pins: sensor.remap(pins)
-                if "humidifier" in pins: io.remap('humidifier', pins)
-                if "fan" in pins: io.remap('fan', pins)
-                if "heater" in pins: io.remap('heater', pins)
-            if "active_high" in data: devices["active_high"] = bool(data["active_high"])
-            return devices
-        except Exception as e:
-            return { "error": str(e) }, 400
-
     @app.post('/outputs')
     def _setoutputs(req):
         try:
@@ -170,8 +173,8 @@ def make_app(cfg, wlan, io, sensor):
         Toggle each output briefly to check GPIO plumbing. Records availability for /health.
         """
         data = req.json or {}
-        if not data.get("allow_toggle"):
-            return {"ok": False, "error": "allow_toggle required"}, 400
+        # if not data.get("allow_toggle"):
+        #     return {"ok": False, "error": "allow_toggle required"}, 400
         pulse_ms = max(100, min(int(data.get("pulse_ms", 300)), 2000))
 
         async def pulse(pin):
