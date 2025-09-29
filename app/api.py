@@ -14,55 +14,8 @@ def make_app(cfg, wlan, io, sensor):
 
     @app.get('/health')
     def _health(req):
-        now = time.time()
-
-        # Sensor availability judged by recency of a plausible read
-        last_ok = status["last_sensor_ok_at"]
-        age = int(now - last_ok) if last_ok else None
-        max_age = max(2 * int(cfg["control"]["period_s"]), 10)
-        sensor_ok = (age is not None) and (age <= max_age) and (status["last_sensor_error"] is None)
-
-        # Availability from last /probe (with real feedback if present)
-        last_probe_at = status.get("last_probe_at")
-        last_probe_age = int(now - last_probe_at) if last_probe_at else None
-        dev_av = status.get("devices_available") or {}
-
-        # Compute outputs.available with 3-state logic (True/False/None)
-        # - None if we have no evidence either way
-        # - False if any device reported False
-        # - True if at least one True and none False
-        vals = [v for v in dev_av.values() if v is not None]
-        if any(v is False for v in vals):
-            outputs_ok = False
-        elif any(v is True for v in vals):
-            outputs_ok = True
-        else:
-            outputs_ok = None
-
-        overall_ok = (sensor_ok and (outputs_ok is not False))
-
         return {
-            "ok": overall_ok,
             "device": cfg["device_name"],
-
-            "sensors": {
-                "dht": {
-                    "available": sensor_ok,
-                    "last_ok_age_s": age,
-                    "last_error": status["last_sensor_error"],
-                }
-            },
-
-            "outputs": {
-                "available": outputs_ok,
-                "last_probe_age_s": last_probe_age,
-                "devices": {
-                    "fan": dev_av.get("fan"),
-                    "humidifier": dev_av.get("humidifier"),
-                    "heater": dev_av.get("heater"),
-                },
-            },
-
             "system": system_snapshot(wlan),
         }
 
@@ -79,10 +32,10 @@ def make_app(cfg, wlan, io, sensor):
         except Exception as e:
             return { "error": str(e)}, 400
 
-    @app.get('/devices')
+    @app.get('/setup')
     def _getdevices(req): return devices
 
-    @app.post('/devices')
+    @app.post('/setup')
     def _setdevices(req):
         try:
             data = req.json
@@ -97,7 +50,7 @@ def make_app(cfg, wlan, io, sensor):
         except Exception as e:
             return { "error": str(e) }, 400
         
-    @app.get('/devices/readings')
+    @app.get('/sensors')
     def _status(req):
         """
         Returns readings + current device on/off state.
@@ -128,21 +81,19 @@ def make_app(cfg, wlan, io, sensor):
                         "last_error": status["last_sensor_error"],
                     }
                 },
-                "outputs": {
-                    "devices": {
-                        "fan": status["fan"],
-                        "humidifier": status["humidifier"],
-                        "heater": status["heater"],
-                    }
-                },
-                "setpoints": {
-                    "temperature": setpoints["temperature"],
-                    "humidity": setpoints["humidity"],
-                }
             }
         except Exception as e:
             status["last_sensor_error"] = str(e)
             return {"ok": False, "error": status["last_sensor_error"]}, 500
+
+    @app.get('/outputs')
+    def _getoutputs(req):
+      return {
+          "fan": status["fan"],
+          "humidifier": status["humidifier"],
+          "heater": status["heater"],
+      }
+        
 
     @app.post('/outputs')
     def _setoutputs(req):
@@ -165,47 +116,6 @@ def make_app(cfg, wlan, io, sensor):
             return { "ok": True, "fan": fan, "humidifier": humidifier, "heater": heater }
         except Exception as e:
             return { "ok": False, "error": str(e) }, 400
-
-
-    @app.post('/probe')
-    async def _probe(req):
-        """
-        Toggle each output briefly to check GPIO plumbing. Records availability for /health.
-        """
-        data = req.json or {}
-        # if not data.get("allow_toggle"):
-        #     return {"ok": False, "error": "allow_toggle required"}, 400
-        pulse_ms = max(100, min(int(data.get("pulse_ms", 300)), 2000))
-
-        async def pulse(pin):
-            # observe before -> after, with a mid-check while asserted
-            before = io.is_on(pin)
-            ok1 = io.write(pin, True)
-            mid = io.is_on(pin)
-            await __import__("uasyncio").sleep_ms(pulse_ms)
-            ok2 = io.write(pin, False)
-            after = io.is_on(pin)
-            toggled = ok1 and ok2 and (mid != before)  # changed when asserted
-            return {
-                "before": before, "mid": mid, "after": after,
-                "pulse_ms": pulse_ms, "toggled": toggled
-            }
-
-        rep = {}
-        rep["fan"] = await pulse(io.fan)
-        rep["humidifier"] = await pulse(io.hum)
-        include_heater = bool(data.get("include_heater", False))
-        rep["heater"] = await pulse(io.heat) if include_heater else {"skipped": True, "toggled": None}
-
-        # Persist a coarse availability view for /health (skipped -> None)
-        status["last_probe_at"] = time.time()
-        status["devices_available"] = {
-            "fan": rep["fan"].get("toggled"),
-            "humidifier": rep["humidifier"].get("toggled"),
-            "heater": rep["heater"].get("toggled"),
-        }
-
-        return {"ok": True, "report": rep}
 
     return app
 
