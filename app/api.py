@@ -3,6 +3,7 @@ from microdot import Microdot, Response
 
 from .state import status, setpoints, devices
 from .metrics import system_snapshot
+from .control import is_control_enabled, set_control_enabled
 
 def make_app(cfg, wlan, io, sensor):
     app = Microdot()
@@ -116,6 +117,30 @@ def make_app(cfg, wlan, io, sensor):
             return { "ok": True, "fan": fan, "humidifier": humidifier, "heater": heater }
         except Exception as e:
             return { "ok": False, "error": str(e) }, 400
+        
+    @app.get('/control')
+    def get_control(req):
+        return {"enabled": is_control_enabled()}
+
+    @app.post('/control')
+    def set_control(req):
+        try:
+            body = req.json or {}
+        except Exception:
+            body = {}
+        if "enabled" not in body or not isinstance(body["enabled"], bool):
+            return ({"error": 'send {"enabled": true|false}'}, 422)
+
+        enabled = body["enabled"]
+        set_control_enabled(enabled)
+
+        # Optional: immediately force outputs safe when disabling
+        if not enabled and hasattr(io, "all_off"):
+            try: io.all_off()
+            except: pass
+
+        return {"enabled": enabled}
+
 
     return app
 

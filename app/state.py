@@ -12,3 +12,4 @@ devices = {
     "pins": { "dht": 4, "humidifier": 6, "fan": 7, "heater": 8 },
     "active_high": False,
 }
+control_enabled = True

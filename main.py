@@ -24,7 +24,7 @@ wlan = connect_wifi(cfg["wifi"]["ssid"], cfg["wifi"]["password"], cfg["device_na
 async def main():
     start_metrics()
     asyncio.create_task(announce_then_retry_once(cfg, wlan, io, delay_s=60, timeout_s=2, stop_event=stop_event))
-    asyncio.create_task(control_loop(cfg, wlan, io, sensor))
+    asyncio.create_task(control_loop(cfg, wlan, io, sensor, stop_event=stop_event))
     await start_server(cfg, wlan, io, sensor)
 
 try:

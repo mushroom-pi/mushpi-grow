@@ -2,7 +2,7 @@ from machine import Pin
 import utime as time
 import uasyncio as asyncio
 
-from .state import devices
+from .state import devices, status
 
 class IO:
     def __init__(self):
@@ -92,9 +92,33 @@ class IO:
         self.stop_led_heartbeat()
         self.led_onboard.value(1 if on else 0)
 
+    def hum_on(self):
+        self.hum(self._on())
+        status["humidifier"] = True
+
+    def hum_off(self):
+        self.hum(self._off())
+        status["humidifier"] = False
+
+    def fan_on(self):
+        self.fan(self._on())
+        status["fan"] = True
+
+    def fan_off(self):
+        self.fan(self._off())
+        status["fan"] = False
+
+    def heat_on(self):
+        self.heat(self._on())
+        status["heat"] = True
+
+    def heat_off(self):
+        self.heat(self._off())
+        status["heat"] = False
+
     def all_off(self):
         self.led_off()
-        self.hum(self._off())
-        self.fan(self._off())
-        self.heat(self._off())
+        self.hum_off()
+        self.fan_off()
+        self.heat_off()
         self.stop_led_heartbeat()
