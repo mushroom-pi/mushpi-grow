@@ -1,7 +1,7 @@
 import uasyncio as asyncio
 
 from app.config_loader import load_config
-from app.state import boot_ms
+import app.state as state
 from app.wifi import connect_wifi
 from app.hw import IO
 from app.sensor import DHTReader
@@ -17,9 +17,11 @@ sensor = DHTReader()
 
 # General variables
 cfg = load_config()
+state.init_system_info(cfg)
 
 # Bring up Wi-Fi
 wlan = connect_wifi(cfg["wifi"]["ssid"], cfg["wifi"]["password"], cfg["device_name"], io) ## This will start by turning the ledd off
+state.attach_wlan_info(wlan, cfg)
 
 async def main():
     start_metrics()

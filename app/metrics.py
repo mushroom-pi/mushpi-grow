@@ -54,7 +54,6 @@ def _wifi(wlan):
 
     return {
         "connected": wifi_ok,
-        "ip": wlan.ifconfig()[0] if wifi_ok else None,
         "rssi": _wifi_rssi(wlan) # dBm (negative), or None
     }
 
@@ -96,20 +95,11 @@ def system_snapshot(wlan=None):
         "free": free,
         "used_pct": int((used * 100) / total) if total else None,
     }
-    # CPU freq (MHz)
-    mhz = None
-    try:
-        f = freq()
-        if isinstance(f, int):
-            mhz = int(f // 1_000_000)
-    except:
-        pass
 
     return {
         "mem": mem,                # bytes
         "fs": _fs_usage("/"),      # bytes
         "wifi": _wifi(wlan),
-        "cpu": {"freq_mhz": mhz},
         "mcu_temp_c": _mcu_temp_c(),        # rough, may be None
         "event_loop_util_pct": _last_util_pct,  # 0..100, None until first window elapses,
         "uptime_s": _up_time_s() # up time in seconds

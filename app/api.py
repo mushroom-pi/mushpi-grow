@@ -1,9 +1,15 @@
 import time
 from microdot import Microdot, Response
 
-from .state import status, setpoints, devices
+from .state import status, setpoints, devices, get_system_info
 from .metrics import system_snapshot
 from .control import is_control_enabled, set_control_enabled
+
+outputs = {
+    "fan": status["fan"],
+    "humidifier": status["humidifier"],
+    "heater": status["heater"],
+}
 
 def make_app(cfg, wlan, io, sensor):
     app = Microdot()
@@ -15,10 +21,12 @@ def make_app(cfg, wlan, io, sensor):
 
     @app.get('/health')
     def _health(req):
-        return {
-            "device": cfg["device_name"],
-            "system": system_snapshot(wlan),
-        }
+        return system_snapshot(wlan)
+    
+    @app.get('/system')
+    def system_info(req):
+        return get_system_info()
+
 
     @app.get('/setpoints')
     def _getsp(req): return setpoints
@@ -62,27 +70,8 @@ def make_app(cfg, wlan, io, sensor):
             # Optional fresh read: /status?force=1
             if req.args.get('force'):
                 sensor.d.measure()
-                status["temperature"] = sensor.d.temperature()
-                status["humidity"] = sensor.d.humidity()
-                status["last_sensor_ok_at"] = time.time()
-                status["last_sensor_error"] = None
 
-            now = time.time()
-            last_ok = status["last_sensor_ok_at"]
-            age = int(now - last_ok) if last_ok else None
-            sensor_ok = (last_ok is not None) and (status["last_sensor_error"] is None)
-
-            return {
-                "ok": sensor_ok,   # “are readings currently healthy?”
-                "sensors": {
-                    "dht": {
-                        "temperature": status["temperature"],
-                        "humidity": status["humidity"],
-                        "last_ok_age_s": age,
-                        "last_error": status["last_sensor_error"],
-                    }
-                },
-            }
+            return sensor.get_latest_dht_read()
         except Exception as e:
             status["last_sensor_error"] = str(e)
             return {"ok": False, "error": status["last_sensor_error"]}, 500
@@ -119,11 +108,11 @@ def make_app(cfg, wlan, io, sensor):
             return { "ok": False, "error": str(e) }, 400
         
     @app.get('/control')
-    def get_control(req):
+    def _get_control(req):
         return {"enabled": is_control_enabled()}
 
     @app.post('/control')
-    def set_control(req):
+    def _set_control(req):
         try:
             body = req.json or {}
         except Exception:
@@ -141,6 +130,24 @@ def make_app(cfg, wlan, io, sensor):
 
         return {"enabled": enabled}
 
+
+    @app.get("/")
+    def _get_all(req):
+        return {
+            "system": get_system_info(),
+            "health": system_snapshot(wlan),
+            "devices": devices,
+            "sensors": {
+                "dht": sensor.get_latest_dht_read(),
+            },
+            "outputs": {
+                "fan": status["fan"],
+                "humidifier": status["humidifier"],
+                "heater": status["heater"],
+            },
+            "setpoints": setpoints,
+            "control_loop_enabled": is_control_enabled()
+        }
 
     return app
 

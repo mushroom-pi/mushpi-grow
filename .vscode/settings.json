@@ -11,5 +11,17 @@
     ],
     "python.analysis.extraPaths": [
         "~/.micropico-stubs/included"
+    ],
+    "micropico.syncFileTypes": [
+        "py",
+        "txt",
+        "log",
+        "json",
+        "xml",
+        "html",
+        "js",
+        "css",
+        "mpy",
+        ""
     ]
 }

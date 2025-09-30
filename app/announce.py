@@ -20,7 +20,6 @@ def payload(cfg, wlan, extra=None):
         "name": cfg["device_name"],
         "host": _ip(wlan),
         "port": cfg["api_port"],
-        # "capabilities": ["status", "setpoints", "health", "probe"],
     }
     if extra and isinstance(extra, dict):
         data.update(extra)
