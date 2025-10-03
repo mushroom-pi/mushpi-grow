@@ -1,4 +1,4 @@
-# 🍄 Mushroom Pi 🍓 - Pico Unit
+# 🍄 Mushroom Pi 🍓 - Pico Growing Unit
 
 ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)![Raspberry Pi](https://img.shields.io/badge/-Raspberry_Pi-C51A4A?style=for-the-badge&logo=Raspberry-Pi)
 

@@ -17,7 +17,7 @@ def _ip(wlan):
 
 def payload(cfg, wlan, extra=None):
     data = {
-        "name": cfg["device_name"],
+        "handle": cfg["device_name"],
         "host": _ip(wlan),
         "port": cfg["api_port"],
     }

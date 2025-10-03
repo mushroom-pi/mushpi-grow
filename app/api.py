@@ -1,4 +1,3 @@
-import time
 from microdot import Microdot, Response
 
 from .state import status, setpoints, devices, get_system_info
