@@ -1,3 +1,5 @@
+from app.metrics import system_snapshot
+from app.state import get_system_info
 import usocket
 import uasyncio as asyncio
 
@@ -15,12 +17,21 @@ def _ip(wlan):
         return None
 
 
-def payload(cfg, wlan, extra=None):
+def payload(wlan, extra=None):
+    system = get_system_info()
+    health = system_snapshot(wlan)
     data = {
-        "handle": cfg["device_name"],
-        "host": _ip(wlan),
-        "port": cfg["api_port"],
+        "handle": system['software']["device_name"],
+        "host": system['wifi']['ip'],
+        "port": system['wifi']['port'],
+        "micropython_version": system["micropython"]["build"],
+        "software_version": system["software"]["version"],
+        "board": system["hardware"]["board"],
+        "board_total_mem_byte": health["mem"]["total"],
+        "board_total_fs_byte": health["fs"]["total"],
+        "board_cpu_freq_mhz": system["hardware"]["cpu"]["freq_mhz"]
     }
+
     if extra and isinstance(extra, dict):
         data.update(extra)
     return data
@@ -32,14 +43,15 @@ def announce_once_blocking(cfg, wlan, io=None, extra=None, timeout_s=2):
     Returns True on 2xx, False otherwise.
     """
     if requests is None:
-        raise RuntimeError("urequests not found. Upload urequests.py to /lib on the Pico.")
+        raise RuntimeError(
+            "urequests not found. Upload urequests.py to /lib on the Pico.")
 
     # Must have Wi-Fi & IP
     if not wlan or not (hasattr(wlan, "isconnected") and wlan.isconnected()) or not _ip(wlan):
         return False
 
     # Build payload
-    body = payload(cfg, wlan, extra)
+    body = payload(wlan, extra)
 
     # Set a small global socket timeout for this call; restore after
     try:
@@ -50,7 +62,8 @@ def announce_once_blocking(cfg, wlan, io=None, extra=None, timeout_s=2):
     ok = False
     try:
         # Connection: close so sockets are freed promptly
-        r = requests.post(cfg["hub_url"], json=body, headers={"Connection": "close"})
+        r = requests.post(cfg["hub_url"], json=body,
+                          headers={"Connection": "close"})
         # Read/close to release socket
         try:
             _ = r.text

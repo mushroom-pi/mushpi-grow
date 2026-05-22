@@ -12,7 +12,7 @@ from app.shutdown import graceful_shutdown, stop_event
 from app.metrics import start_metrics
 
 # Hardware & sensor
-io = IO() # This will turn the LED ON
+io = IO()  # This will turn the LED ON
 sensor = DHTReader()
 
 # General variables
@@ -20,13 +20,18 @@ cfg = load_config()
 state.init_system_info(cfg)
 
 # Bring up Wi-Fi
-wlan = connect_wifi(cfg["wifi"]["ssid"], cfg["wifi"]["password"], cfg["device_name"], io) ## This will start by turning the ledd off
+wlan = connect_wifi(cfg["wifi"]["ssid"], cfg["wifi"]["password"],
+                    # This will start by turning the ledd off
+                    cfg["device_name"], io)
 state.attach_wlan_info(wlan, cfg)
+
 
 async def main():
     start_metrics()
-    asyncio.create_task(announce_then_retry_once(cfg, wlan, io, delay_s=60, timeout_s=2, stop_event=stop_event))
-    asyncio.create_task(control_loop(cfg, wlan, io, sensor, stop_event=stop_event))
+    asyncio.create_task(announce_then_retry_once(
+        cfg, wlan, io, delay_s=60, timeout_s=2, stop_event=stop_event))
+    asyncio.create_task(control_loop(
+        cfg, wlan, io, sensor, stop_event=stop_event))
     await start_server(cfg, wlan, io, sensor)
 
 try:
