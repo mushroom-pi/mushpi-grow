@@ -2,7 +2,6 @@
     "recommendations": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "paulober.pico-w-go",
-        "raspberry-pi.raspberry-pi-pico"
+        "paulober.pico-w-go"
     ]
 }
