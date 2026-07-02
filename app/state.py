@@ -110,12 +110,13 @@ def attach_wlan_info(wlan, cfg=None):
     port = None
     try:
         mac = wlan.config('mac')  # Pico W
+        hostname = wlan.config('hostname')
         ip = wlan.ifconfig()[0]
         mac_hex = ":".join("%02x" % b for b in mac)
         if cfg: port = cfg["api_port"]
     except:
         pass
-    _system_info["wifi"] = {"mac": mac_hex, "ip": ip, "port": port}
+    _system_info["wifi"] = {"mac": mac_hex, "ip": ip, "port": port, "hostname": hostname}
 
 def get_system_info():
     """Read-only fetch (returns the cached dict)."""

@@ -88,7 +88,8 @@ Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in
 ```json
 {
   "wifi": { "ssid": "...", "password": "..." },
-  "hub_url": "http://<hub_ip>:3000/pico-units",
+  "hub_url": "http://<hub_ip>:3000/pico-units/announce",
+  "hub_secret": "mushpi-dev-secret",
   "device_name": "pico-unit1",
   "api_port": 5000,
   "control": { "period_s": 10, "hyst_hum": 5, "hyst_temp": 1 }
@@ -96,6 +97,7 @@ Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in
 ```
 
 - `device_name` must match the `handle` field in `mushpi-server`'s `PicoUnit` entity.
+- `hub_secret` must match the server's `PICO_ANNOUNCE_SECRET` env var. Sent as `X-Pico-Secret` header on every announcement POST.
 - `config.json` is gitignored — a checked-in copy with real credentials exists locally.
 - `config_loader.py` provides defaults for all fields (device_name: `"PicoDevice"`, period_s: `5`).
 

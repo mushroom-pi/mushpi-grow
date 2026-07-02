@@ -2,6 +2,9 @@ from app.metrics import system_snapshot
 from app.state import get_system_info
 import usocket
 import uasyncio as asyncio
+import ujson
+
+from .state import setpoints
 
 # Use MicroPython's urequests (upload to /lib if missing)
 try:
@@ -21,8 +24,8 @@ def payload(wlan, extra=None):
     system = get_system_info()
     health = system_snapshot(wlan)
     data = {
-        "handle": system['software']["device_name"],
-        "host": system['wifi']['ip'],
+        "handle": system["software"]["device_name"],
+        "ip": system['wifi']['ip'],
         "port": system['wifi']['port'],
         "micropython_version": system["micropython"]["build"],
         "software_version": system["software"]["version"],
@@ -61,18 +64,26 @@ def announce_once_blocking(cfg, wlan, io=None, extra=None, timeout_s=2):
 
     ok = False
     try:
-        # Connection: close so sockets are freed promptly
-        r = requests.post(cfg["hub_url"], json=body,
-                          headers={"Connection": "close"})
-        # Read/close to release socket
-        try:
-            _ = r.text
-        finally:
-            r.close()
+        # urequests silently ignores the `json=` kwarg — pass data as a
+        # pre-serialised string so the non-dict branch in URLOpener fires,
+        # which is the only branch that actually appends a body + Content-Length.
+        # Do NOT include Content-Length in the headers dict: URLOpener adds it
+        # itself on line 52, so a duplicate would cause body-parser to reject
+        # the body.
+        body_str = ujson.dumps(body)
+        secret = cfg.get("hub_secret", "") if isinstance(cfg, dict) else ""
+        r = requests.post(
+            cfg["hub_url"],
+            data=body_str,
+            headers={
+                "Content-Type": "application/json",
+                "Connection": "close",
+                "X-Pico-Secret": secret,
+            }
+        )
 
         code = getattr(r, "status_code", None)
         ok = (code is not None) and (200 <= int(code) < 300)
-
         if ok:
             print("announce: ok")
         else:

@@ -36,6 +36,7 @@ def make_app(cfg, wlan, io, sensor):
             data = req.json
             if "temperature" in data: setpoints["temperature"] = int(data["temperature"])
             if "humidity" in data:    setpoints["humidity"]    = int(data["humidity"])
+            print("Updated setpoints to", setpoints)
             return setpoints
         except Exception as e:
             return { "error": str(e)}, 400
@@ -54,6 +55,7 @@ def make_app(cfg, wlan, io, sensor):
                 if "fan" in pins: io.remap('fan', pins)
                 if "heater" in pins: io.remap('heater', pins)
             if "active_high" in data: devices["active_high"] = bool(data["active_high"])
+            print("Updated devices to", devices)
             return devices
         except Exception as e:
             return { "error": str(e) }, 400
