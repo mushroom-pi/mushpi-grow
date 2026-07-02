@@ -26,7 +26,7 @@ mushpi-grow/
 │   ├── announce.py      # announce_then_retry_once() — POSTs presence to hub on boot
 │   ├── api.py           # Microdot REST API (port 5000)
 │   ├── metrics.py       # system_snapshot() — RAM, FS, Wi‑Fi RSSI, MCU temp, uptime, loop util
-│   ├── wifi.py          # connect_wifi() — blocking STA connect with hostname
+│   ├── wifi.py          # connect_wifi() — blocking STA connect with network.hostname()
 │   ├── config_loader.py # load_config() — shallow-merges config.json over defaults
 │   └── shutdown.py      # graceful_shutdown() — stop event, all_off, WiFi disconnect
 └── lib/
@@ -40,13 +40,20 @@ mushpi-grow/
 2. `DHTReader()` — initialises DHT11 sensor.
 3. `load_config()` — reads `config.json` with shallow merge over defaults.
 4. `state.init_system_info(cfg)` — caches board/MicroPython/build metadata.
-5. `connect_wifi()` — blocking STA connect (up to ~10 s); LED stays OFF until connected, then LED ON.
-6. `state.attach_wlan_info(wlan, cfg)` — caches MAC, IP, hostname, port.
-7. `main()` async task:
+5. `state.check_mdns_firmware(cfg["device_name"])` — warns if firmware < v1.26.0 (mDNS won't work; see README).
+6. `connect_wifi()` — blocking STA connect (up to ~10 s); LED stays OFF until connected, then LED ON.
+7. `state.attach_wlan_info(wlan, cfg)` — caches MAC, IP, hostname, port.
+8. `main()` async task:
    - `start_metrics()` — launches background event-loop utilisation meter.
    - Spawns `announce_then_retry_once()` — tries POST to hub; if it fails, waits 60 s and retries once.
    - Spawns `control_loop()` — hysteresis loop.
    - `await start_server()` — Microdot HTTP server on `0.0.0.0:<api_port>`.
+
+## Firmware requirements
+
+For `<device_name>.local` mDNS resolution (so the hub or a browser can reach the unit at `http://<device_name>.local:5000` without knowing its IP), the Pico must run **MicroPython ≥ v1.26.0** (v1.25.0 stable also contains the fix, but v1.26.0 is the recommended minimum and confirmed working). Pre-release/preview builds of v1.25.0 do **not** have the fix. AP-mode mDNS is unsupported ([#10957](https://github.com/micropython/micropython/issues/10957)). mDNS is link-local — only resolves on the same subnet; cross-subnet needs a router mDNS reflector.
+
+The rp2/CYW43 mDNS responder was half-wired for years: `mdns_resp_init()` opened UDP/5353 but the driver never called `mdns_resp_add_netif()`, so no announcement packets were sent. Fixed in v1.25.0 stable by [PR #17057](https://github.com/micropython/micropython/pull/17057). `app/wifi.py` uses `network.hostname(name)` before `active(True)` (the modern API; `wlan.config(hostname=...)` is deprecated). `state.check_mdns_firmware()` warns at boot if the firmware is too old.
 
 ## Hardware Pins (defaults)
 

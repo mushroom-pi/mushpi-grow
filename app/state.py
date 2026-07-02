@@ -118,6 +118,54 @@ def attach_wlan_info(wlan, cfg=None):
         pass
     _system_info["wifi"] = {"mac": mac_hex, "ip": ip, "port": port, "hostname": hostname}
 
+_MDNS_MIN_VERSION = (1, 26, 0)
+
+def check_mdns_firmware(device_name=None):
+    """Warn at boot if MicroPython is too old for <hostname>.local mDNS.
+    Non-fatal: only prints. See README 'Firmware requirements'.
+    Triggered when: version tuple < (1,26,0) OR release/build string
+    contains 'preview'/'dirty' (catches pre-release builds like
+    v1.25.0-preview that lack the mDNS fix)."""
+    import sys
+    vt = None
+    try:
+        v = getattr(sys.implementation, "version", None)
+        if v and len(v) >= 2:
+            vt = (int(v[0]), int(v[1]), int(v[2]) if len(v) >= 3 else 0)
+    except:
+        pass
+
+    build = None
+    try:
+        import os
+        build = os.uname().release
+        if not build:
+            build = os.uname().version
+    except:
+        pass
+
+    preview = False
+    if build:
+        b = build.lower()
+        preview = ("preview" in b) or ("dirty" in b)
+
+    too_old = (vt is not None) and (vt < _MDNS_MIN_VERSION)
+
+    if too_old or preview:
+        ver_str = ".".join(str(x) for x in vt) if vt else (build or "unknown")
+        name = device_name or "<device_name>"
+        print("============================================================")
+        print("WARNING: MicroPython firmware %s is too old for mDNS." % ver_str)
+        print("Reaching this unit as %s.local will NOT work." % name)
+        print("The rp2/CYW43 mDNS responder was fixed in MicroPython")
+        print("v1.25.0 stable (PR micropython/micropython#17057).")
+        print("Recommended: reflash to MicroPython >= v1.26.0 (the version")
+        print("confirmed working). See README 'Firmware requirements'.")
+        print("The DHCP hostname and the REST API on the unit's IP still work.")
+        if preview:
+            print("Detected a pre-release/preview build - these are not supported.")
+        print("============================================================")
+
 def get_system_info():
     """Read-only fetch (returns the cached dict)."""
     return _system_info if _system_info is not None else init_system_info()

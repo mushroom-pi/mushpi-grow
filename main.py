@@ -18,6 +18,7 @@ sensor = DHTReader()
 # General variables
 cfg = load_config()
 state.init_system_info(cfg)
+state.check_mdns_firmware(cfg["device_name"])
 
 # Bring up Wi-Fi
 wlan = connect_wifi(cfg["wifi"]["ssid"], cfg["wifi"]["password"],

@@ -30,6 +30,20 @@ Extra packages can be added as single files in the `lib/` folder at the root of 
 
 ## How to use
 
+### Firmware requirements
+
+For `<device_name>.local` mDNS resolution to work (so you can reach the unit at `http://<device_name>.local:5000/ping` from the same LAN without knowing its IP), the Pico must run **MicroPython v1.26.0 or newer**.
+
+- **v1.25.0 stable** (2025-04-15) contains the mDNS fix ([PR #17057](https://github.com/micropython/micropython/pull/17057)), but **pre-release/preview builds of v1.25.0 do NOT** (they were built before the fix landed).
+- **v1.26.0** is the recommended minimum and the version confirmed working on this project.
+- **AP-mode mDNS is unsupported** ([#10957](https://github.com/micropython/micropython/issues/10957)) — only STA mode works.
+- **mDNS is link-local**: it only resolves on the same subnet. If the hub is on a different VLAN/subnet, you need an mDNS reflector on the router to cross it.
+
+If the firmware is too old, the boot sequence prints a warning referring you here. The DHCP hostname and the REST API on the unit's IP still work regardless.
+
+**Download v1.26.0 firmware**: [RPI_PICO2_W-20250809-v1.26.0.uf2](https://micropython.org/resources/firmware/RPI_PICO2_W-20250809-v1.26.0.uf2)  
+**All releases**: https://micropython.org/download/RPI_PICO2_W/
+
 ### LED indicator
 
 This software allows minimal communication through the Pico's intergrated LED. When the software starts executing, the LED will ALWAYS turn on. After that first flash, the possible LED statuses are:
