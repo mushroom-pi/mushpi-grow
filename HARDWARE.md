@@ -19,19 +19,20 @@ Bill of materials, pin map, wiring reference, and power analysis for the Raspber
 
 | GPIO | Component | Signal | Notes |
 |------|-----------|--------|-------|
+| 0 (GP0) | Force-provision input | — | Internal pull-up (33kΩ–60kΩ). Hold LOW at boot (momentary switch to GND) to force AP provisioning mode. |
 | 4 (GP4) | DHT11 | DATA | Single-wire digital. Internal pull-up used. |
 | 6 (GP6) | Relay channel 3 (heater) | IN3 | Active-low by default. Configurable via `active_high` in `config.json`. |
 | 7 (GP7) | Relay channel 2 (fan) | IN2 | Active-low by default. |
 | 8 (GP8) | Relay channel 1 (humidifier) | IN1 | Active-low by default. |
-| `LED` | Onboard LED | — | Status indicator. OFF = no WiFi. SOLID = WiFi connected, hub not confirmed. BLINKING = fully operational. |
+| `LED` | Onboard LED | — | Status indicator. OFF = no WiFi. SOLID = WiFi connected, hub not confirmed. BLINKING = fully operational. SLOW DOUBLE-BLINK (200/200/200/800ms) = AP provisioning mode. |
 
 ### Available GPIOs
 
 The following pins are **unused** and available for expansion:
 
-- GPIO 0, 1, 2, 3, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 26, 27, 28
+- GPIO 1, 2, 3, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 26, 27, 28
 - All ADC pins (26, 27, 28) — usable for analog sensors
-- I2C0 (GP0/GP1) and I2C1 (GP2/GP3) — available for I2C sensors
+- I2C0 (GP1 only; GP0 reserved for force-provision) and I2C1 (GP2/GP3) — available for I2C sensors
 - SPI0 and SPI1 — available for SPI devices
 
 ## Wiring Reference

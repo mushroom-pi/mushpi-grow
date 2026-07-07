@@ -1,4 +1,5 @@
 import uasyncio as asyncio
+import machine
 
 # Global event you can pass to your loops to tell them to exit
 stop_event = asyncio.Event()
@@ -38,3 +39,12 @@ async def graceful_shutdown(wlan=None, io=None, sensor=None):
                 wlan.active(False)
     except Exception as e:
         print("wifi cleanup error:", e)
+
+async def reboot(wlan=None, io=None, sensor=None, delay_ms=0):
+    """Graceful shutdown then hard reset after optional delay."""
+    await graceful_shutdown(wlan, io, sensor)
+    if delay_ms > 0:
+        print(f"waiting {delay_ms}ms before reboot")
+        await asyncio.sleep_ms(delay_ms)
+    print("rebooting now")
+    machine.reset()

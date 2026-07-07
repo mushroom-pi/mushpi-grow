@@ -46,8 +46,24 @@ If the firmware is too old, the boot sequence prints a warning referring you her
 
 ### LED indicator
 
-This software allows minimal communication through the Pico's intergrated LED. When the software starts executing, the LED will ALWAYS turn on. After that first flash, the possible LED statuses are:
+This software allows minimal communication through the Pico's integrated LED. When the software starts executing, the LED will ALWAYS turn on. After that first flash, the possible LED statuses are:
 
-- LED OFF: The software has been executed, but the provided Wifi credentials haven't allowed connecting the device to the internet. Review the Wifi settings if you want to access the unit's records.
-- LED ON: The device has successfully connected to the provided Wifi, but hasn't been able to communicate with the local hub.
-- LED BLINKING: The unit is connected to the Wifi and can see and communicate with the local hub.
+| LED Pattern | Meaning |
+|-------------|---------|
+| OFF | Wi-Fi not connected / booting |
+| SOLID | Wi-Fi connected, awaiting server announce |
+| HEARTBEAT (even blink) | Normal operation |
+| SLOW DOUBLE-BLINK (200/200/200/800ms) | AP provisioning mode — awaiting Wi-Fi credentials |
+
+### Provisioning (First-Time Setup or Wi-Fi Recovery)
+
+On first boot (no Wi-Fi configured) or after a Wi-Fi connection failure, the Pico enters **AP provisioning mode**:
+
+1. The LED starts a **slow double-blink** pattern (200ms on / 200ms off / 200ms on / 800ms off).
+2. The Pico creates its own open Wi-Fi network: **`mushpi-provision-XXXX`** (where XXXX is the last 4 hex digits of the AP MAC address — no password).
+3. Connect to that network from any phone, laptop, or tablet.
+4. Open **`http://192.168.4.1:5000`** in a browser.
+5. Enter your Wi-Fi network name (SSID) and password in the form.
+6. The Pico saves the credentials to `config.json`, reboots, and connects to your network.
+
+**Force-provision**: Hold **GP0 to GND** during boot to force provisioning mode, even if Wi-Fi credentials are already configured. This is useful for changing networks or recovering from bad credentials.

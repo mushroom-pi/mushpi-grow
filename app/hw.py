@@ -67,12 +67,40 @@ class IO:
             self._hb_task = None
         self.led_onboard.value(0)
 
+    stop_provisioning_blink = stop_led_heartbeat
+
     async def _heartbeat_loop(self, stop_event):
         try:
             while self._hb_enabled and not (stop_event and stop_event.is_set()):
                 half = max(1, self._hb_period_ms // 2)
                 self.led_onboard.value(1); await asyncio.sleep_ms(half)
                 self.led_onboard.value(0); await asyncio.sleep_ms(half)
+        finally:
+            self.led_onboard.value(0)
+            self._hb_task = None
+
+    def start_provisioning_blink(self, stop_event=None):
+        """Asymmetric blink: 200 on / 200 off / 200 on / 800 off — provisioning indicator."""
+        # cancel any existing heartbeat task first
+        if self._hb_task:
+            try: self._hb_task.cancel()
+            except: pass
+            self._hb_task = None
+
+        self._hb_enabled = True
+        self._hb_task = asyncio.create_task(self._provisioning_blink_loop(stop_event))
+
+    async def _provisioning_blink_loop(self, stop_event):
+        try:
+            while self._hb_enabled and not (stop_event and stop_event.is_set()):
+                # 200ms ON
+                self.led_onboard.value(1); await asyncio.sleep_ms(200)
+                # 200ms OFF
+                self.led_onboard.value(0); await asyncio.sleep_ms(200)
+                # 200ms ON
+                self.led_onboard.value(1); await asyncio.sleep_ms(200)
+                # 800ms OFF
+                self.led_onboard.value(0); await asyncio.sleep_ms(800)
         finally:
             self.led_onboard.value(0)
             self._hb_task = None

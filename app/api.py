@@ -1,8 +1,12 @@
+import uasyncio as asyncio
+
 from microdot import Microdot, Response
 
 from .state import status, setpoints, devices, get_system_info
 from .metrics import system_snapshot
 from .control import is_control_enabled, set_control_enabled
+from .config_loader import save_config
+from .shutdown import reboot
 
 outputs = {
     "fan": status["fan"],
@@ -10,9 +14,43 @@ outputs = {
     "heater": status["heater"],
 }
 
-def make_app(cfg, wlan, io, sensor):
+try:
+    with open('app/provision.html', 'r') as f:
+        _PROVISIONING_HTML = f.read()
+except OSError:
+    _PROVISIONING_HTML = '<html><body><h1>MushPi</h1><p>Error loading provisioning form.</p></body></html>'
+
+def make_app(cfg, wlan, io, sensor, mode="sta"):
     app = Microdot()
     Response.default_content_type = 'application/json'
+
+    # CORS headers on every response
+    @app.after_request
+    def _cors(req, res):
+        res.headers['Access-Control-Allow-Origin'] = '*'
+        res.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, OPTIONS'
+        res.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        res.headers['Access-Control-Max-Age'] = '600'
+        return res
+
+    # Override OPTIONS handler to include CORS headers
+    # (after_request is skipped for OPTIONS in Microdot)
+    def _options_with_cors(req):
+        allow = []
+        for route_methods, route_pattern, _, _, _ in app.url_map:
+            if route_pattern.match(req.path) is not None:
+                allow.extend(route_methods)
+        if 'GET' in allow:
+            allow.append('HEAD')
+        allow.append('OPTIONS')
+        return {
+            'Allow': ', '.join(allow),
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Max-Age': '600',
+        }
+    app.options_handler = _options_with_cors
 
     @app.get('/ping')
     def _pin(req):
@@ -21,11 +59,10 @@ def make_app(cfg, wlan, io, sensor):
     @app.get('/health')
     def _health(req):
         return system_snapshot(wlan)
-    
+
     @app.get('/system')
     def system_info(req):
         return get_system_info()
-
 
     @app.get('/setpoints')
     def _getsp(req): return setpoints
@@ -59,7 +96,32 @@ def make_app(cfg, wlan, io, sensor):
             return devices
         except Exception as e:
             return { "error": str(e) }, 400
-        
+
+    @app.post('/provision')
+    def _provision(req):
+        try:
+            data = req.json
+            wifi_data = data.get("wifi") if isinstance(data, dict) else None
+            if not isinstance(wifi_data, dict):
+                return {"error": "wifi object is required"}, 400
+            ssid = wifi_data.get("ssid", "")
+            if not ssid or not isinstance(ssid, str):
+                return {"error": "wifi.ssid is required"}, 400
+            cfg["wifi"]["ssid"] = ssid
+            if "password" in wifi_data:
+                cfg["wifi"]["password"] = wifi_data["password"]
+            if "networks" in wifi_data:
+                cfg["wifi"]["networks"] = wifi_data["networks"]
+            try:
+                save_config(cfg)
+            except Exception as e:
+                return {"error": str(e)}, 400
+            print("WiFi credentials saved, rebooting in 2s...")
+            asyncio.create_task(reboot(wlan=None, io=io, sensor=sensor, delay_ms=2000))
+            return {"ok": True, "wifi": {"ssid": cfg["wifi"]["ssid"]}}
+        except Exception as e:
+            return {"error": str(e)}, 400
+
     @app.get('/sensors')
     def _status(req):
         """
@@ -84,7 +146,6 @@ def make_app(cfg, wlan, io, sensor):
           "humidifier": status["humidifier"],
           "heater": status["heater"],
       }
-        
 
     @app.post('/outputs')
     def _setoutputs(req):
@@ -107,7 +168,7 @@ def make_app(cfg, wlan, io, sensor):
             return { "ok": True, "fan": fan, "humidifier": humidifier, "heater": heater }
         except Exception as e:
             return { "ok": False, "error": str(e) }, 400
-        
+
     @app.get('/control')
     def _get_control(req):
         return {"enabled": is_control_enabled()}
@@ -131,9 +192,11 @@ def make_app(cfg, wlan, io, sensor):
 
         return {"enabled": enabled}
 
-
     @app.get("/")
     def _get_all(req):
+        if mode == "ap":
+            html = _PROVISIONING_HTML.replace("DEVNAME", cfg.get("device_name", "pico"))
+            return Response(html, status_code=200, headers={'Content-Type': 'text/html'})
         return {
             "system": get_system_info(),
             "health": system_snapshot(wlan),
@@ -152,6 +215,6 @@ def make_app(cfg, wlan, io, sensor):
 
     return app
 
-async def start_server(cfg, wlan, io, sensor):
-    app = make_app(cfg, wlan, io, sensor)
+async def start_server(cfg, wlan, io, sensor, mode="sta"):
+    app = make_app(cfg, wlan, io, sensor, mode)
     await app.start_server(host='0.0.0.0', port=cfg["api_port"])

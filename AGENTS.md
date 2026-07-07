@@ -7,7 +7,7 @@ MicroPython firmware for Raspberry Pi Pico 2W. Controls humidity and temperature
 There are no traditional build or test commands — this is plain MicroPython uploaded directly to the Pico. To deploy:
 
 - Use the **MicroPico** VSCode extension (`paulober.pico-w-go` in `.vscode/extensions.json`).
-- Upload all `.py` files, `config.json`, and `VERSION` to the Pico's flash.
+- Upload all `.py` files, `.html` files (e.g. `app/provision.html`), `config.json`, and `VERSION` to the Pico's flash.
 - Required third-party libs go in `/lib/` on the device: `microdot.py`, `urequests.py` (already vendored in the repo).
 - Bump `VERSION` on every release; it is read at runtime by `state.init_software_info_from_file()`.
 
@@ -27,8 +27,9 @@ mushpi-grow/
 │   ├── api.py           # Microdot REST API (port 5000)
 │   ├── metrics.py       # system_snapshot() — RAM, FS, Wi‑Fi RSSI, MCU temp, uptime, loop util
 │   ├── wifi.py          # connect_wifi() — blocking STA connect with network.hostname()
-│   ├── config_loader.py # load_config() — shallow-merges config.json over defaults
-│   └── shutdown.py      # graceful_shutdown() — stop event, all_off, WiFi disconnect
+│   ├── config_loader.py # load_config() + save_config() — atomic config read/write
+│   ├── provision.html   # HTML form served in AP provisioning mode
+│   └── shutdown.py      # graceful_shutdown() + reboot()
 └── lib/
     ├── microdot.py      # Microdot async web framework (vendored)
     └── urequests.py     # MicroPython HTTP client (vendored)
@@ -41,13 +42,19 @@ mushpi-grow/
 3. `load_config()` — reads `config.json` with shallow merge over defaults.
 4. `state.init_system_info(cfg)` — caches board/MicroPython/build metadata.
 5. `state.check_mdns_firmware(cfg["device_name"])` — warns if firmware < v1.26.0 (mDNS won't work; see README).
-6. `connect_wifi()` — blocking STA connect (up to ~10 s); LED stays OFF until connected, then LED ON.
-7. `state.attach_wlan_info(wlan, cfg)` — caches MAC, IP, hostname, port.
-8. `main()` async task:
-   - `start_metrics()` — launches background event-loop utilisation meter.
-   - Spawns `announce_then_retry_once()` — tries POST to hub; if it fails, waits 60 s and retries once.
-   - Spawns `control_loop()` — hysteresis loop.
-   - `await start_server()` — Microdot HTTP server on `0.0.0.0:<api_port>`.
+6. **Force-provision check** — reads GP0 (internal pull-up). If LOW, sets `_force_provision = True`.
+7. `connect_wifi()` — tries each candidate network (primary + `networks` list), up to `retries` per SSID; LED stays OFF until connected, then LED ON. Returns `(wlan, ip)`.
+8. **AP mode decision**: if `_force_provision` OR `ip is None`:
+   - `start_ap_provisioning(cfg)` — open AP at `192.168.4.1`
+   - `io.start_provisioning_blink()` — slow double-blink LED pattern
+   - `main()` runs only `start_server(mode="ap")` — no announce, no control loop
+9. **STA mode** (normal boot):
+   - `state.attach_wlan_info(wlan, cfg)` — caches MAC, IP, hostname, port.
+   - `main()` async task:
+     - `start_metrics()` — launches background event-loop utilisation meter.
+     - Spawns `announce_then_retry_once()` — tries POST to hub; if it fails, waits 60 s and retries once.
+     - Spawns `control_loop()` — hysteresis loop.
+     - `await start_server()` — Microdot HTTP server on `0.0.0.0:<api_port>`.
 
 ## Firmware requirements
 
@@ -57,13 +64,14 @@ The rp2/CYW43 mDNS responder was half-wired for years: `mdns_resp_init()` opened
 
 ## Hardware Pins (defaults)
 
-| Device           | GPIO | Notes                         |
-|------------------|------|-------------------------------|
-| DHT11            | 4    | Temperature + humidity sensor |
-| Humidifier relay | 6    | Active-low by default         |
-| Fan relay        | 7    | Active-low by default         |
-| Heater relay     | 8    | Active-low by default         |
-| Onboard LED      | `LED`| Status indicator              |
+| Device           | GPIO | Notes                                                       |
+|------------------|------|-------------------------------------------------------------|
+| Force-provision  | 0    | Internal pull-up; hold LOW at boot to force AP mode         |
+| DHT11            | 4    | Temperature + humidity sensor                               |
+| Humidifier relay | 6    | Active-low by default                                       |
+| Fan relay        | 7    | Active-low by default                                       |
+| Heater relay     | 8    | Active-low by default                                       |
+| Onboard LED      | `LED`| Status indicator                                            |
 
 - `active_high` in `config.json` flips relay polarity. The `IO` class in `app/hw.py` handles this automatically — never toggle GPIO directly.
 - Pins can be remapped at runtime via `POST /setup`.
@@ -80,7 +88,7 @@ Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in
 
 | Method     | Path        | Notes                                                  |
 |------------|-------------|--------------------------------------------------------|
-| GET        | `/`         | Full snapshot (system + health + sensors + outputs + setpoints + control state) |
+| GET        | `/`         | STA: full JSON snapshot. AP: HTML provisioning form. CORS headers on all responses. |
 | GET        | `/ping`     | Liveness (empty 200)                                   |
 | GET        | `/health`   | RAM, FS, Wi‑Fi RSSI, MCU temp, uptime, loop util %     |
 | GET        | `/system`   | Board, MicroPython version, software version, Wi‑Fi IP/MAC |
@@ -88,13 +96,33 @@ Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in
 | GET / POST | `/setpoints`| `{"temperature": int, "humidity": int}`                 |
 | GET / POST | `/outputs`  | `{"fan": bool, "humidifier": bool, "heater": bool}`     |
 | GET / POST | `/control`  | `{"enabled": bool}`                                    |
-| GET / POST | `/setup`    | GPIO pin mapping + `active_high`                        |
+| GET / POST | `/setup`    | GPIO pin mapping + `active_high`                          |
+| POST       | `/provision`| Wi-Fi credential provisioning (AP mode only — writes config.json + reboots) |
+
+### AP Provisioning Mode
+
+When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at boot), it enters AP provisioning mode:
+- SSID: `mushpi-provision-XXXX` (XXXX = last 4 hex of AP MAC), open network
+- IP: `192.168.4.1`, port `5000`
+- LED: slow double-blink (200/200/200/800ms)
+- `GET /` returns an HTML setup form
+- `POST /provision` with `{"wifi":{"ssid":"...","password":"..."}}` writes `config.json` and reboots
+- CORS headers are enabled on all responses
+- mDNS does NOT resolve in AP mode — use the IP directly
+- Relays remain OFF during provisioning (control loop is not started)
+- Force-provision: hold GP0 to GND during boot (internal pull-up)
 
 ## config.json
 
 ```json
 {
-  "wifi": { "ssid": "...", "password": "..." },
+  "wifi": {
+    "ssid": "MyNetwork",
+    "password": "secret",
+    "networks": [
+      {"ssid": "FallbackNetwork", "password": "secret2"}
+    ]
+  },
   "hub_url": "http://<hub_ip>:3000/pico-units/announce",
   "hub_secret": "mushpi-dev-secret",
   "device_name": "pico-unit1",
@@ -107,12 +135,14 @@ Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in
 - `hub_secret` must match the server's `PICO_ANNOUNCE_SECRET` env var. Sent as `X-Pico-Secret` header on every announcement POST.
 - `config.json` is gitignored — a checked-in copy with real credentials exists locally.
 - `config_loader.py` provides defaults for all fields (device_name: `"PicoDevice"`, period_s: `5`).
+- `networks` is optional. If present, `connect_wifi()` tries each in order; first success wins. The primary `ssid`/`password` pair is tried first.
 
 ## LED Status Indicators
 
 - **OFF**: WiFi connection failed — check SSID/password.
 - **SOLID ON**: WiFi connected but hub announcement failed (or still in progress).
 - **BLINKING** (heartbeat): WiFi connected and hub announcement succeeded.
+- **PROVISIONING** (slow double-blink): 200ms on / 200ms off / 200ms on / 800ms off — AP mode active, awaiting Wi-Fi credentials via web form.
 
 ## Shared State Rules
 
@@ -133,3 +163,5 @@ Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in
   - `urequests` does not support the `json=` kwarg — pass pre-serialised `ujson.dumps(body)` as `data=` with explicit `Content-Type: application/json` header.
   - `usocket.setdefaulttimeout()` is used to set per-request timeouts and restored to `None` afterwards.
   - DHT11 can return implausible readings; `DHTReader.plausible()` validates `-10 ≤ t ≤ 60` and `0 ≤ h ≤ 100`.
+- **Persist config** with `save_config(cfg)` — atomic write via `config.json.tmp` + `os.rename`. Never `open('config.json','w')` directly.
+- **`POST /provision` `wifi` key** is the only field that persists to flash. `pins` and `active_high` (via `POST /setup`) are runtime-only (lost on reboot).
