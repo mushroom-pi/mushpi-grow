@@ -26,6 +26,7 @@ def payload(wlan, extra=None):
     data = {
         "handle": system["software"]["device_name"],
         "ip": system['wifi']['ip'],
+        "mac": system['wifi']['mac'],
         "port": system['wifi']['port'],
         "micropython_version": system["micropython"]["build"],
         "software_version": system["software"]["version"],
