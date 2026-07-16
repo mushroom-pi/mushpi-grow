@@ -144,9 +144,14 @@ class IO:
         self.heat(self._off())
         status["heat"] = False
 
-    def all_off(self):
-        self.led_off()
+    def relays_off(self):
+        """Turn off relays only; keep LED heartbeat running."""
         self.hum_off()
         self.fan_off()
         self.heat_off()
+
+    def all_off(self):
+        self.led_off()
+        self.relays_off()
         self.stop_led_heartbeat()
+

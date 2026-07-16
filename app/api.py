@@ -185,9 +185,9 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
         enabled = body["enabled"]
         set_control_enabled(enabled)
 
-        # Optional: immediately force outputs safe when disabling
-        if not enabled and hasattr(io, "all_off"):
-            try: io.all_off()
+        # Optional: immediately force relays safe when disabling (LED heartbeat stays alive)
+        if not enabled and hasattr(io, "relays_off"):
+            try: io.relays_off()
             except: pass
 
         return {"enabled": enabled}

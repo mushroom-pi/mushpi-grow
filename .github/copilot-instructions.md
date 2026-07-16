@@ -18,7 +18,7 @@ MicroPython firmware for Raspberry Pi Pico 2W. Controls humidity/temperature via
 
 | Module | Role |
 |--------|------|
-| `app/state.py` | Shared dicts: `status`, `setpoints`, `devices`, `control_enabled` — mutate in place, never replace |
+| `app/state.py` | Shared dicts: `status`, `setpoints`, `devices` — mutate in place, never replace |
 | `app/hw.py` | `IO` — GPIO init, `hum_on/off`, `fan_on/off`, `heat_on/off`, `all_off()` |
 | `app/sensor.py` | `DHTReader` — reads DHT11, updates `status` |
 | `app/control.py` | `control_loop()` — hysteresis-based coro |
@@ -32,7 +32,7 @@ Runs every `control.period_s` (default 10 s) as a `uasyncio` coroutine.
 
 - **Humidity**: below `setpoint + hyst_hum` → humidifier ON, fan OFF; above `setpoint + hyst_hum` → fan ON, humidifier OFF.
 - **Temperature**: below `setpoint + hyst_temp` → heater ON; above `setpoint + hyst_temp` → heater OFF.
-- When `control_enabled = False`: call `io.all_off()` once, then sleep until re-enabled.
+- When `control_enabled = False`: keeps sampling the DHT11 every `control.period_s`, calls `relays_off()` once (relays only — LED heartbeat continues), and skips hysteresis actuation until re-enabled.
 
 ## REST API (port 5000)
 

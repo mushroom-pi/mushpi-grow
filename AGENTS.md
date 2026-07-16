@@ -19,7 +19,7 @@ mushpi-grow/
 ├── config.json          # WiFi, hub URL, device name, control params (gitignored)
 ├── VERSION              # Single-line version string (e.g. "0.1.0")
 ├── app/
-│   ├── state.py         # Shared mutable dicts (status, setpoints, devices, control_enabled)
+│   ├── state.py         # Shared mutable dicts (status, setpoints, devices)
 │   ├── hw.py            # IO class — GPIO init, relay control, LED heartbeat
 │   ├── sensor.py        # DHTReader — reads DHT11, updates status
 │   ├── control.py       # control_loop() — hysteresis-based async coroutine
@@ -82,7 +82,9 @@ Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in
 
 - **Humidity**: below `setpoint + hyst_hum` → humidifier ON, fan OFF. At or above `setpoint + hyst_hum` → fan ON, humidifier OFF.
 - **Temperature**: below `setpoint + hyst_temp` → heater ON. At or above `setpoint + hyst_temp` → heater OFF.
-- When `control_enabled = False`: calls `io.all_off()` once, then sleeps in 100 ms chunks until re-enabled.
+- When `control_enabled = False`: keeps sampling the DHT11 every `control.period_s`, calls `relays_off()` once (relays only — LED heartbeat continues), and skips hysteresis actuation until re-enabled. Sampling is decoupled from actuation so `GET /`, `/sensors`, and `/health` keep returning fresh readings.
+
+**Key design rule**: sensor sampling must remain independent of `control_enabled` (observability vs. actuation separation). `io.all_off()` is for fail-safe/shutdown only; use `io.relays_off()` for control-disabled state.
 
 ## REST API (port 5000)
 
@@ -146,7 +148,7 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 
 ## Shared State Rules
 
-- `app/state.py` exports mutable dictionaries: `status`, `setpoints`, `devices`, `control_enabled`.
+- `app/state.py` exports mutable dictionaries: `status`, `setpoints`, `devices`.
 - **Always mutate in place** — never reassign these module-level names.
 - `_system_info` is cached (built once, read many times).
 
