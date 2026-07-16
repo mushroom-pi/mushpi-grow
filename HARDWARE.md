@@ -108,3 +108,236 @@ Key elements covered:
 - Actuators: USB mist maker (5V), DC fan (5V), USB heating mat (5V)
 - Force-provision button (GP0 → GND)
 - Power section: dedicated 5V 2A PSU, 3.3V rail, decoupling capacitors, polyfuse
+
+---
+
+## Proposed Upgrade: Unified Power Distribution
+
+> **Status**: Proposed future upgrade. Not yet implemented. The current setup (individual USB cables into a USB hub, described in the [Power section](#power) above) remains the active configuration.
+
+### What's the Problem?
+
+Right now, every component gets power via its own USB cable plugged into a USB hub. This works, but:
+
+- Four USB cables cluttering the enclosure
+- USB connectors can corrode in the humid growing environment
+- USB hubs often share current across ports; a cheap hub can fail under load
+- No per-device overcurrent protection beyond what the hub provides
+- Hard to add proper circuit protection (fuses, reverse polarity diode)
+
+### The Proposed Solution
+
+Replace all the individual USB cables with a **single 5V DC power supply** feeding a **WAGO distribution block** (think of it as a power strip, but for bare wires). Each device gets its own fused wire pair from the WAGO blocks. Cleaner, safer, and easier to expand later.
+
+```
+                 ┌──────────────────────────────────┐
+                 │     5V DC Power Supply (2.5A+)    │
+                 │   Wall plug → barrel jack output  │
+                 └───────────┬──────────────────────┘
+                             │
+                      (2 wires: red +, black -)
+                             │
+                             ▼
+                 ┌──────────────────────────────────┐
+                 │     DC Barrel Jack Socket          │
+                 │   5.5×2.1mm panel-mount            │
+                 └───────────┬──────────────────────┘
+                             │
+                      (2 wires: red +, black -)
+                             │
+                             ▼
+                 ┌──────────────────────────────────┐
+                 │     WAGO 221 Lever Connectors       │
+                 │   (5-way: 1 input, 4 outputs)      │
+                 │                                    │
+                 │   + rail:  ├── Pico VSYS (fused)   │
+                 │             ├── Relay VCC (fused)   │
+                 │             ├── Humidifier (fused)  │
+                 │             └── Fan (fused)         │
+                 │                                    │
+                 │   - rail:  ├── Pico GND             │
+                 │             ├── Relay GND            │
+                 │             ├── Humidifier GND       │
+                 │             └── Fan GND              │
+                 └────────────────────────────────────┘
+                             │
+                 ┌───────────┼───────────┬──────────────┐
+                 ▼           ▼           ▼              ▼
+            ┌────────┐ ┌────────┐ ┌──────────┐  ┌──────────┐
+            │ Pico   │ │ Relay  │ │Humidifier│  │   Fan    │
+            │ 2W     │ │ Module │ │(CH1)     │  │  (CH2)   │
+            │ VSYS   │ │ VCC    │ │          │  │          │
+            │(pin 39)│ │        │ │          │  │          │
+            └────────┘ └────────┘ └──────────┘  └──────────┘
+                                  ┌──────────┐
+                                  │ Heating  │
+                                  │   Mat    │
+                                  │  (CH3)   │
+                                  └──────────┘
+```
+
+### Shopping List (Simplified)
+
+Everything below uses screw terminals or lever connectors — no soldering required. All items are common and easy to find online or at any electronics shop.
+
+| Item | What it is | Why you need it | Approx. Price |
+|------|-----------|----------------|---------------|
+| 5V 2.5A+ DC power supply | Wall adapter with barrel jack output (5.5×2.1mm). Like a phone charger, but always 5V. | Replaces all USB cables. One plug powers the entire unit. | €8–12 |
+| DC barrel jack socket | A small plastic socket that clips into a round hole in your enclosure. Wires connect via screw terminals. | Brings 5V into the enclosure cleanly — no loose USB plugs inside. | €1–2 |
+| WAGO 221 lever connectors (×2, 5-way) | Small plastic blocks with orange levers. Push lever up, insert stripped wire, push lever down. No tools needed. | Distributes power to all devices. One block for positive (+), one for negative (-). | €4–6 (pack) |
+| Inline fuse holders (×5) | Small plastic tubes that hold a glass fuse. Screw terminals on both ends. | Protects each device individually. If one device shorts, only its fuse blows — everything else keeps running. | €3–5 (pack of 5) |
+| Glass fuses (×5, 1A fast-blow) | Small glass tubes with metal end-caps, 5×20mm size. Rated 1 amp. | Blow instantly if a device draws too much current (short circuit). | €2–3 (pack of 10) |
+| Polyfuse 500mA (×1) | A self-resetting fuse. Small disc with two legs. Goes on the Pico's VSYS line. | Extra protection for the Pico. Unlike glass fuses, it resets automatically when the fault clears. | €1 |
+| Schottky diode 1N5819 (×1) | Tiny component with a silver stripe on one end. Current flows only one way. | Protects the Pico if you accidentally swap + and - wires. The diode blocks reverse current. | €0.50 |
+| Silicone-coated wire, 18–22 AWG | Flexible wire with soft silicone insulation. Get red and black, ~2 metres of each. | Much easier to route than stiff USB cables. Silicone doesn't melt when soldering. | €5–8 |
+| Heat shrink tubing (assorted) | Rubber-like tubing that shrinks when heated (lighter, heat gun, or even a hairdryer). | Insulates all exposed connections. Essential for safety in a humid grow chamber. | €3–5 (pack) |
+
+**Total estimated cost**: €28–42
+
+### Key Safety Points
+
+1. **Every device gets its own fuse.** If the heating mat develops a short, only the heating mat fuse blows. The fan, humidifier, relay module, and Pico keep running. You replace one €0.30 fuse instead of troubleshooting a dead system.
+
+2. **Polyfuse on the Pico's VSYS line.** A self-resetting fuse means if the Pico ever draws too much current, the polyfuse trips temporarily. Once the fault clears, it resets — no need to open the enclosure.
+
+3. **Reverse polarity protection on the Pico.** The 1N5819 diode in series with VSYS means if you accidentally swap the + and - wires (easy to do with bare wires during setup), the Pico is protected. The diode simply blocks current in the wrong direction. No damage.
+
+4. **Moisture protection is mandatory.** Every connection point (WAGO terminals, fuse holder screws, barrel jack contacts) must be inside a waterproof or water-resistant enclosure. Cover any soldered joints with heat shrink. Apply silicone conformal coating to the relay board — it's a clear spray that waterproofs electronics without affecting operation.
+
+5. **Everything stays at low voltage.** As with the current setup, no mains voltage (110V/220V AC) enters the grow chamber. The only voltage inside is 5V DC — safe to touch.
+
+### What This Does NOT Change
+
+- **Relay wiring**: GPIO 6 → IN1 (humidifier), GPIO 7 → IN2 (fan), GPIO 8 → IN3 (heater). Unchanged.
+- **DHT11 wiring**: GPIO 4, 3V3, GND. Unchanged.
+- **Force-provision switch**: GPIO 0 → GND. Unchanged.
+- **Firmware**: **No changes needed.** The Pico doesn't know or care whether 5V arrives via USB or VSYS pin 39. Pin assignments, control loop logic, REST API — all identical. Zero code changes.
+
+### Visual Comparison
+
+| What | Current Setup (USB Hub) | Proposed Upgrade |
+|------|------------------------|------------------|
+| Power cables in enclosure | 4 USB cables | 1 DC barrel jack cable |
+| Connectors in humid air | USB plugs (not sealed) | Screw/lever terminals (enclosed) |
+| Per-device overcurrent protection | Only what USB hub provides | Individual glass fuse per device + polyfuse on Pico |
+| Reverse polarity protection | USB is keyed (can't be reversed) | Schottky diode on Pico supply line |
+| Expandability | Limited by USB ports on hub | Add another WAGO slot + fuse |
+| Cable management | 4 stiff USB cables to route and manage | 1 flexible cable into enclosure, tidy internal wiring |
+
+### Wiring Diagram (Proposed)
+
+```mermaid
+flowchart LR
+    subgraph psu["🔌 5V DC PSU 2.5A+"]
+        ps["Wall Plug → Barrel Jack"]
+    end
+
+    subgraph barrel["🔌 DC Barrel Jack Socket"]
+        bj_pos["+ (5V)"]
+        bj_neg["- (GND)"]
+    end
+
+    subgraph wago_pos["🟥 WAGO 221 — Positive (5V) Rail"]
+        wp_in["Input"]
+        wp1["→ Pico VSYS"]
+        wp2["→ Relay VCC"]
+        wp3["→ Humidifier"]
+        wp4["→ Fan"]
+        wp5["→ Heating Mat"]
+    end
+
+    subgraph wago_neg["⬛ WAGO 221 — Negative (GND) Rail"]
+        wn_in["Input"]
+        wn1["→ Pico GND"]
+        wn2["→ Relay GND"]
+        wn3["→ Humidifier GND"]
+        wn4["→ Fan GND"]
+        wn5["→ Heating Mat GND"]
+    end
+
+    subgraph fuses["🔒 Per-Device Fuses"]
+        fp["Polyfuse 500mA<br/>(Pico)"]
+        f1["Fuse 1A<br/>(Relay)"]
+        f2["Fuse 1A<br/>(Humidifier)"]
+        f3["Fuse 1A<br/>(Fan)"]
+        f4["Fuse 1A<br/>(Heating Mat)"]
+    end
+
+    subgraph devices["🔧 Devices"]
+        pico_dev["🌱 Pico 2W<br/>VSYS (pin 39)"]
+        relay_dev["⚙️ Relay Module<br/>VCC"]
+        hum_dev["💧 Humidifier<br/>(CH1)"]
+        fan_dev["🌀 Fan<br/>(CH2)"]
+        heat_dev["🔥 Heating Mat<br/>(CH3)"]
+    end
+
+    subgraph protection["⚡ Reverse Polarity Protection"]
+        diode["1N5819<br/>(Pico only)"]
+    end
+
+    %% === POWER FLOW (Red) ===
+    ps -->|"5V DC"| bj_pos
+    bj_pos -->|"5V"| wp_in
+    wp1 --> fp -->|"5V fused"| diode -->|"5V → VSYS"| pico_dev
+    wp2 --> f1 -->|"5V fused"| relay_dev
+    wp3 --> f2 -->|"5V fused"| hum_dev
+    wp4 --> f3 -->|"5V fused"| fan_dev
+    wp5 --> f4 -->|"5V fused"| heat_dev
+
+    %% === GROUND FLOW (Black) ===
+    bj_neg -->|"GND"| wn_in
+    wn1 -->|"GND"| pico_dev
+    wn2 -->|"GND"| relay_dev
+    wn3 -->|"GND"| hum_dev
+    wn4 -->|"GND"| fan_dev
+    wn5 -->|"GND"| heat_dev
+
+    %% === LEGEND ===
+    l1["━ 5V Positive (Red)"]:::posStyle
+    l2["━ GND Negative (Black)"]:::negStyle
+    l3["━ Protection (Fuse/Diode)"]:::fuseStyle
+    l1 --- l2 --- l3
+
+    %% === STYLES ===
+    classDef posStyle fill:#fee2e2,stroke:#dc2626,color:#991b1b
+    classDef negStyle fill:#e5e5e5,stroke:#1a1a1a,color:#1a1a1a
+    classDef fuseStyle fill:#ffedd5,stroke:#ea580c,color:#9a3412
+    classDef devStyle fill:#f0fdf4,stroke:#166534,color:#14532d
+
+    class ps,bj_pos,wp_in,wp1,wp2,wp3,wp4,wp5 posStyle
+    class bj_neg,wn_in,wn1,wn2,wn3,wn4,wn5 negStyle
+    class fp,f1,f2,f3,f4,diode fuseStyle
+    class pico_dev,relay_dev,hum_dev,fan_dev,heat_dev devStyle
+```
+
+### Step-by-Step Build Order (for Future Reference)
+
+When you decide to implement this upgrade:
+
+1. **Mount the barrel jack socket** in a round hole in the enclosure wall. Tighten the nut. Connect the PSU to test it clips in securely.
+2. **Wire the barrel jack to the WAGO blocks.** Two wires: barrel jack + screw terminal → WAGO positive block input. Barrel jack - screw terminal → WAGO negative block input.
+3. **For each device**, prepare a pair of wires (red for +, black for -) from the WAGO blocks to the device:
+   - Positive wire: WAGO + output → inline fuse holder → device positive terminal
+   - Negative wire: WAGO - output → device negative terminal
+4. **For the Pico specifically**: The positive wire goes WAGO + → polyfuse → 1N5819 diode (stripe toward Pico) → Pico VSYS (pin 39).
+5. **Heat shrink every connection.** Slide the tubing over the joint before connecting, then shrink it with a heat source after.
+6. **Apply conformal coating** to the relay board (especially solder joints and exposed traces). Let it dry fully before powering on.
+7. **Test with a multimeter before plugging in any device.** Verify 5V at each output. Verify correct polarity (red probe on +, black on - should read +5V, not -5V).
+8. **Install fuses last.** Insert the glass fuses into their holders only after everything is verified.
+
+### Why VSYS Instead of USB
+
+VSYS (pin 39) is the preferred power input for this upgrade because:
+
+- Bypasses the USB connector's onboard 500mA polyfuse (one less failure point)
+- Still goes through the Pico's internal buck-boost regulator (clean power)
+- Leaves the micro-USB port free for programming
+- Easier to connect to a WAGO block than a micro-USB plug
+
+### Notes for the Inexperienced Builder
+
+- **You don't need to understand electronics deeply.** This is wiring, not circuit design. Think of it like connecting speakers to a stereo — red to red, black to black, fuse in between.
+- **The WAGO connectors are genuinely easy.** Push the orange lever up with your finger, insert the stripped wire tip (about 10mm bare copper), push the lever down. Done. No screwdriver. No crimping tool.
+- **Buy a cheap multimeter** (€10–15). You'll use it once: before plugging anything in, set it to DC voltage mode, touch the probes to the output terminals to confirm +5V and correct polarity. This one check prevents 90% of potential damage.
+- **Label your wires.** Use masking tape or small labels to mark which wire goes to which device. Once everything is inside the enclosure, you'll be glad you did.
+- **The Pico's pin numbering can be confusing.** Pin 39 (VSYS) is the physical pin number. Count from the USB end: top-left is pin 40 (VBUS), top-right is pin 21 (GP16). VSYS is pin 39, bottom-left corner. Mark it with a small piece of tape before you start wiring.
