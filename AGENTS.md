@@ -95,9 +95,9 @@ Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in
 | GET        | `/health`   | RAM, FS, Wi‑Fi RSSI, MCU temp, uptime, loop util %     |
 | GET        | `/system`   | Board, MicroPython version, software version, Wi‑Fi IP/MAC |
 | GET / POST | `/sensors`  | DHT reading; `?force=1` triggers on-demand measurement |
-| GET / POST | `/setpoints`| `{"temperature": int, "humidity": int}`                 |
+| GET / POST | `/setpoints`| `{"temperature": int, "humidity": int}` — triggers immediate hysteresis re-evaluation when control is enabled |
 | GET / POST | `/outputs`  | `{"fan": bool, "humidifier": bool, "heater": bool}`     |
-| GET / POST | `/control`  | `{"enabled": bool}`                                    |
+| GET / POST | `/control`  | `{"enabled": bool}` — disables control immediately (calls `relays_off()` sync) |
 | GET / POST | `/setup`    | GPIO pin mapping + `active_high`                          |
 | POST       | `/provision`| Wi-Fi credential provisioning (AP mode only — writes config.json + reboots) |
 
@@ -159,6 +159,7 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 
 - **No type hints** — MicroPython support is limited; CPython type annotations are stripped before upload.
 - **Never use blocking calls** inside async tasks; use `await asyncio.sleep_ms()`.
+- **HTTP handlers must not perform blocking sensor reads** (e.g. `sensor.d.measure()`) — use the last cached `status` values from `app/state.py` instead. The one exception is `GET /sensors?force=1`, which triggers an on-demand measurement intentionally.
 - **All I/O is async** — use `asyncio.create_task()` for background work.
 - **Error handling**: bare `except:` is acceptable; always log errors with `print()`.
 - **RAM budget**: ~264 KB on RP2040; avoid large imports, f-strings, or unnecessary allocations.
@@ -169,4 +170,4 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
   - `usocket.setdefaulttimeout()` is used to set per-request timeouts and restored to `None` afterwards.
   - DHT11 can return implausible readings; `DHTReader.plausible()` validates `-10 ≤ t ≤ 60` and `0 ≤ h ≤ 100`.
 - **Persist config** with `save_config(cfg)` — atomic write via `config.json.tmp` + `os.rename`. Never `open('config.json','w')` directly.
-- **`POST /provision` `wifi` key** is the only field that persists to flash. `pins` and `active_high` (via `POST /setup`) are runtime-only (lost on reboot).
+- **`POST /provision` `wifi` key** is the only field that persists to flash. `pins`, `active_high` (via `POST /setup`), and setpoints (via `POST /setpoints`) are runtime-only (lost on reboot).

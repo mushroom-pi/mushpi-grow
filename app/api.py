@@ -4,7 +4,7 @@ from microdot import Microdot, Response
 
 from .state import status, setpoints, devices, get_system_info
 from .metrics import system_snapshot
-from .control import is_control_enabled, set_control_enabled
+from .control import is_control_enabled, set_control_enabled, evaluate_hysteresis
 from .config_loader import save_config
 from .shutdown import reboot
 
@@ -68,6 +68,16 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
             if "temperature" in data: setpoints["temperature"] = int(data["temperature"])
             if "humidity" in data:    setpoints["humidity"]    = int(data["humidity"])
             print("Updated setpoints to", setpoints)
+
+            # Immediate re-evaluation so relays react now rather than waiting
+            # for the next control_loop tick. Only when control is enabled —
+            # if disabled, the loop owns relay state (latched off).
+            if is_control_enabled():
+                try:
+                    evaluate_hysteresis(cfg, io)
+                except Exception as e:
+                    print("Immediate hysteresis eval failed:", e)
+
             return setpoints
         except Exception as e:
             return { "error": str(e)}, 400

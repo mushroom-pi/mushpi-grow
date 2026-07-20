@@ -14,10 +14,38 @@ def set_control_enabled(enabled: bool):
 def is_control_enabled():
     return control_enabled_event.is_set()
 
-async def control_loop(cfg, wlan, io, sensor, stop_event=None):
-    P = cfg["control"]["period_s"]
+def evaluate_hysteresis(cfg, io):
+    """Pure actuation step — applies current setpoints against cached sensor
+    readings to drive relays. Does NOT check control_enabled; the caller is
+    responsible for gating. Reads status/setpoints live (no snapshots)."""
     Hh = cfg["control"]["hyst_hum"]
     Ht = cfg["control"]["hyst_temp"]
+    t = status["temperature"]
+    h = status["humidity"]
+
+    # Humidity control
+    if h is not None:
+        if h < setpoints["humidity"] - Hh:
+            io.hum_on()
+            io.fan_off()
+        elif h > setpoints["humidity"] + Hh:
+            io.fan_on()
+            io.hum_off()
+        else:
+            io.hum_off()
+            io.fan_off()
+
+    # Temperature control
+    if t is not None:
+        if t < setpoints["temperature"] - Ht:
+            io.heat_on()
+        elif t > setpoints["temperature"] + Ht:
+            io.heat_off()
+        else:
+            io.heat_off()
+
+async def control_loop(cfg, wlan, io, sensor, stop_event=None):
+    P = cfg["control"]["period_s"]
     relays_latched = False  # ensures relays_off() called only once when disabled
 
     while not (stop_event and stop_event.is_set()):
@@ -32,8 +60,6 @@ async def control_loop(cfg, wlan, io, sensor, stop_event=None):
         except:
             pass
 
-        t, h = status["temperature"], status["humidity"]
-
         if not control_enabled_event.is_set():
             # Control disabled: turn off relays once, keep LED heartbeat alive.
             if not relays_latched:
@@ -45,27 +71,7 @@ async def control_loop(cfg, wlan, io, sensor, stop_event=None):
         else:
             # Control enabled: reset latch and run hysteresis actuation.
             relays_latched = False
-
-            # Humidity control
-            if h is not None:
-                if h < setpoints["humidity"] - Hh:
-                    io.hum_on()
-                    io.fan_off()
-                elif h > setpoints["humidity"] + Hh:
-                    io.fan_on()
-                    io.hum_off()
-                else:
-                    io.hum_off()
-                    io.fan_off()
-
-            # Temperature control
-            if t is not None:
-                if t < setpoints["temperature"] - Ht:
-                    io.heat_on()
-                elif t > setpoints["temperature"] + Ht:
-                    io.heat_off()
-                else:
-                    io.heat_off()
+            evaluate_hysteresis(cfg, io)
 
         # Sleep in small chunks for responsive shutdown
         chunks = (P * 1000) // 200
