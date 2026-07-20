@@ -151,6 +151,9 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 - `app/state.py` exports mutable dictionaries: `status`, `setpoints`, `devices`.
 - **Always mutate in place** — never reassign these module-level names.
 - `_system_info` is cached (built once, read many times).
+- **Relay-state keys must match exactly**: the keys in `status` (`fan`, `humidifier`, `heater`) must match the keys in `devices["pins"]` and the JSON field names returned by `GET /` (`outputs.fan`, etc.) and `GET /outputs`. The `IO` helper methods (`hum_on()`, `fan_on()`, `heat_on()`, etc.) are the **only** code allowed to write these keys. A typo in the key name (e.g. `status["heat"]` instead of `status["heater"]`) causes a silent desync: the GPIO pin toggles correctly but the status dict value stays stale, and the server will always poll `false`.
+- **No GPIO read-back**: relay state in the API responses comes from the cached `status` dict, not from live GPIO reads. The dict keys are the single source of truth — keep them correct.
+- **Never snapshot `status[...]` into module-level dicts at import time** — always read from `status` live inside handlers. Module-level snapshots capture initial values and never update.
 
 ## Coding Rules
 

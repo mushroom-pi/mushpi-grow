@@ -138,11 +138,11 @@ class IO:
 
     def heat_on(self):
         self.heat(self._on())
-        status["heat"] = True
+        status["heater"] = True
 
     def heat_off(self):
         self.heat(self._off())
-        status["heat"] = False
+        status["heater"] = False
 
     def relays_off(self):
         """Turn off relays only; keep LED heartbeat running."""

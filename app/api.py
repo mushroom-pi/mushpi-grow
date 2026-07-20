@@ -8,12 +8,6 @@ from .control import is_control_enabled, set_control_enabled
 from .config_loader import save_config
 from .shutdown import reboot
 
-outputs = {
-    "fan": status["fan"],
-    "humidifier": status["humidifier"],
-    "heater": status["heater"],
-}
-
 try:
     with open('app/provision.html', 'r') as f:
         _PROVISIONING_HTML = f.read()
