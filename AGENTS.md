@@ -30,6 +30,8 @@ mushpi-grow/
 │   ├── config_loader.py # load_config() + save_config() — atomic config read/write
 │   ├── provision.html   # HTML form served in AP provisioning mode
 │   └── shutdown.py      # graceful_shutdown() + reboot()
+├── spec/
+│   └── openapi.yaml     # Hand-maintained OpenAPI 3.0 spec (exported from Bruno)
 └── lib/
     ├── microdot.py      # Microdot async web framework (vendored)
     └── urequests.py     # MicroPython HTTP client (vendored)
@@ -100,6 +102,14 @@ Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in
 | GET / POST | `/control`  | `{"enabled": bool}` — disables control immediately (calls `relays_off()` sync) |
 | GET / POST | `/setup`    | GPIO pin mapping + `active_high`                          |
 | POST       | `/provision`| Wi-Fi credential provisioning (AP mode only — writes config.json + reboots) |
+
+## API Specification
+
+The Pico firmware has no automatic spec generation (MicroPython, 264 KB RAM). Instead, the REST API is documented manually:
+
+- **`spec/openapi.yaml`**: a hand-maintained OpenAPI 3.0 spec describing all Pico endpoints. Committed to the repo.
+- **Workflow**: the Bruno collection is the source of truth. When the API changes, update the Bruno collection first, then export it as `spec/openapi.yaml` and commit. This keeps the YAML spec reviewable in PRs alongside the code changes.
+- The spec serves as both human-readable documentation and an import source for API clients/tools (e.g. Bruno, Swagger Editor).
 
 ### AP Provisioning Mode
 

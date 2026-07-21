@@ -1,0 +1,147 @@
+openapi: 3.0.0
+info:
+  title: Pico Unit API
+  version: 0.3.9
+  description: 'The contract served by any pico unit succesfully connected to a Wifi and running this software'
+servers:
+  - url: '{{baseUrl}}'
+paths:
+  /ping:
+    get:
+      summary: PING
+      responses: {}
+      tags:
+        - monitoring
+  /health:
+    get:
+      summary: Health
+      responses: {}
+      tags:
+        - monitoring
+  /system:
+    get:
+      summary: System
+      responses: {}
+      tags:
+        - monitoring
+  /sensors:
+    get:
+      summary: Readings
+      parameters:
+        - name: force
+          in: query
+          required: false
+          deprecated: false
+          schema: {}
+          example: '1'
+      responses: {}
+      tags:
+        - sensors
+  /setpoints:
+    get:
+      summary: Get settings
+      responses: {}
+      tags:
+        - setpoints
+    post:
+      summary: Change settings
+      responses: {}
+      tags:
+        - setpoints
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                temperature:
+                  type: integer
+                humidity:
+                  type: integer
+            example:
+              temperature: ''
+              humidity: ''
+  /setup:
+    get:
+      summary: Get devices characteristics
+      responses: {}
+      tags:
+        - setup
+    post:
+      summary: Change devices setup
+      responses: {}
+      tags:
+        - setup
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pins:
+                  type: object
+                  properties:
+                    dht:
+                      type: integer
+            example:
+              pins:
+                dht: 4
+  /outputs:
+    get:
+      summary: Get outputs status
+      responses: {}
+      tags:
+        - outputs
+    post:
+      summary: Change outputs status
+      responses: {}
+      tags:
+        - outputs
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fan:
+                  type: boolean
+                humidifier:
+                  type: boolean
+                heater:
+                  type: boolean
+            example:
+              fan: true
+              humidifier: false
+              heater: false
+  /control:
+    get:
+      summary: Get control loop status
+      responses: {}
+      tags:
+        - control
+    post:
+      summary: Toggle control loop
+      responses: {}
+      tags:
+        - control
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+            example:
+              enabled: false
+  /:
+    get:
+      summary: Get all the system's current parameters
+      parameters:
+        - name: force
+          in: query
+          required: false
+          deprecated: false
+          schema: {}
+          example: '1'
+      responses: {}
