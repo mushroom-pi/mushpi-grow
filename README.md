@@ -85,3 +85,21 @@ If WiFi drops for any reason (router restart, signal interference, etc.), the Pi
 The Pico has a hardware watchdog timer that acts as a dead man's switch: if the control loop freezes or hangs for more than **8 seconds**, the Pico automatically hard-reboots. After the reboot, it reconnects to WiFi, re-announces to the server, and resumes normal operation — all without human intervention.
 
 This covers rare but critical failures like memory corruption, unhandled exceptions, or an infinite loop. Combined with WiFi auto-reconnection, the system is designed to self-heal from most runtime failures.
+
+### Daily Reboot (Memory Hygiene)
+
+Embedded systems running 24/7 accumulate memory fragmentation and subtle resource leaks over days or weeks. The Pico can be configured to perform a daily soft-reboot at a quiet hour to keep things fresh:
+
+1. **Configuration** — add a `reboot` section to `config.json`:
+   ```json
+   "reboot": { "enabled": true, "hour": 4, "minute": 0 }
+   ```
+   (Disabled by default. Also accepts `ntp_host` and `ntp_tz_offset_hours` for timezone adjustment.)
+
+2. **How it works** — After WiFi connects, the Pico syncs its clock via NTP. Every 60 seconds it checks the current time. When the configured hour and minute match, it gracefully shuts down (turns off all relays, disconnects WiFi), then performs a `machine.soft_reset()`. The reboot takes ~5–10 seconds from shutdown to full recovery.
+
+3. **Cumulative uptime** — Unlike power-cycles or watchdog reboots which reset the uptime counter, scheduled reboots **preserve** cumulative uptime in a `uptime.json` file on flash. The dashboard's `uptime.total_s` continues counting across scheduled reboots, so you won't see alarming "just restarted" numbers every morning.
+
+4. **Guards** — Won't reboot twice in the same day, won't reboot before NTP syncs (no clock = no scheduled reboot), and has a 5-minute boot grace period to avoid immediate re-reboot.
+
+The `GET /health` and `GET /system` endpoints report `uptime.reboot_reason` so you can tell at a glance whether the last restart was scheduled, a watchdog recovery, or an unexpected power cycle.

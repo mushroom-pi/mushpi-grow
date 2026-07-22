@@ -48,3 +48,17 @@ async def reboot(wlan=None, io=None, sensor=None, delay_ms=0):
         await asyncio.sleep_ms(delay_ms)
     print("rebooting now")
     machine.reset()
+
+
+async def soft_reboot(wlan=None, io=None, sensor=None, delay_ms=0):
+    """Graceful shutdown + persist cumulative uptime + machine.soft_reset().
+    Use this for scheduled reboots so reset_cause() reports SOFT_RESET."""
+    await graceful_shutdown(wlan, io, sensor)
+    try:
+        from . import uptime
+        uptime.persist_cumulative()
+    except Exception:
+        pass
+    if delay_ms > 0:
+        await asyncio.sleep_ms(delay_ms)
+    machine.soft_reset()

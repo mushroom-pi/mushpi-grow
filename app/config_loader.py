@@ -11,12 +11,15 @@ _DEFAULT = {
     "device_name": "PicoDevice",
     "api_port": 5000,
     "control": {"period_s": 5, "hyst_hum": 5, "hyst_temp": 1},
+    "reboot": {"enabled": False, "hour": 4, "minute": 0,
+               "ntp_host": "pool.ntp.org", "ntp_tz_offset_hours": 0},
 }
 
 def _default_copy():
     cfg = _DEFAULT.copy()
     cfg["wifi"] = _DEFAULT["wifi"].copy()
     cfg["control"] = _DEFAULT["control"].copy()
+    cfg["reboot"] = _DEFAULT["reboot"].copy()
     return cfg
 
 def load_config(path="config.json"):

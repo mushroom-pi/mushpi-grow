@@ -28,8 +28,11 @@ mushpi-grow/
 │   ├── metrics.py       # system_snapshot() — RAM, FS, Wi‑Fi RSSI, MCU temp, uptime, loop util
 │   ├── wifi.py          # connect_wifi() (blocking boot connect), reconnect_once_async() (async reconnect), wifi_watchdog_loop() (link monitor with backoff)
 │   ├── config_loader.py # load_config() + save_config() — atomic config read/write
+│   ├── config_validator.py # validate_config() — boot-time config field validation
+│   ├── uptime.py         # Cumulative uptime tracking, boot-reason classification, uptime.json persistence
+│   ├── reboot_scheduler.py # Daily scheduled soft-reboot (STA mode), NTP sync
 │   ├── provision.html   # HTML form served in AP provisioning mode
-│   └── shutdown.py      # graceful_shutdown() + reboot()
+│   └── shutdown.py      # graceful_shutdown() + reboot() + soft_reboot()
 ├── spec/
 │   └── openapi.yaml     # Hand-maintained OpenAPI 3.0 spec (exported from Bruno)
 └── lib/
@@ -43,23 +46,25 @@ mushpi-grow/
 2. `DHTReader()` — initialises DHT11 sensor.
 3. `load_config()` — reads `config.json` with shallow merge over defaults. Returns `(cfg, load_errors)` — catches malformed JSON and non-object top-level gracefully.
 4. `validate_config(cfg)` — validates all fields (device_name, api_port, hub_url, wifi, control) for type and range correctness. Accumulates all errors. If any errors (load or validation): prints them to serial, then enters terminal `error_blink_blocking()` state (3 fast blinks + pause forever). Device does NOT start WiFi, control loop, or server.
-5. `state.init_system_info(cfg)` — caches board/MicroPython/build metadata.
-6. `state.check_mdns_firmware(cfg["device_name"])` — warns if firmware < v1.26.0 (mDNS won't work; see README).
-7. **Force-provision check** — reads GP0 (internal pull-up). If LOW, sets `_force_provision = True`.
-8. `connect_wifi()` — tries each candidate network (primary + `networks` list), up to `retries` per SSID; LED stays OFF until connected, then LED ON. Returns `(wlan, ip)`.
-9. **AP mode decision**: if `_force_provision` OR `ip is None`:
-   - `start_ap_provisioning(cfg)` — open AP at `192.168.4.1`
-   - `io.start_provisioning_blink()` — slow double-blink LED pattern
-   - `main()` runs only `start_server(mode="ap")` — no announce, no control loop
-10. **STA mode** (normal boot):
-   - `state.attach_wlan_info(wlan, cfg)` — caches MAC, IP, hostname, port.
-   - Initialises hardware WDT (`WDT(timeout=8000)` — 8-second timeout). Must be created **after** `connect_wifi()` returns (boot WiFi can take 30s+ and would trigger a spurious reboot).
-   - `main()` async task:
-     - `start_metrics()` — launches background event-loop utilisation meter.
-     - Spawns `announce_then_retry_once()` — tries POST to hub; if it fails, waits 60 s and retries once.
-     - Spawns `control_loop()` — hysteresis loop; also feeds the WDT every 200ms via its chunked-sleep loop. If the loop hangs or dies, the WDT expires → hard reboot → WiFi reconnects + re-announces.
-     - Spawns `wifi_watchdog_loop()` — monitors link health, reconnects with exponential backoff on drop.
-     - `await start_server()` — Microdot HTTP server on `0.0.0.0:<api_port>`.
+5. `init_uptime()` — classifies reboot reason via `machine.reset_cause()`: `PWRON_RESET` → "power_on", `WDT_RESET` → "watchdog", `SOFT_RESET` → "scheduled". Loads cumulative uptime from `uptime.json` for scheduled reboots; resets to 0 for others. Persists a fresh `uptime.json` to flash.
+6. `state.init_system_info(cfg)` — caches board/MicroPython/build metadata.
+7. `state.check_mdns_firmware(cfg["device_name"])` — warns if firmware < v1.26.0 (mDNS won't work; see README).
+8. **Force-provision check** — reads GP0 (internal pull-up). If LOW, sets `_force_provision = True`.
+9. `connect_wifi()` — tries each candidate network (primary + `networks` list), up to `retries` per SSID; LED stays OFF until connected, then LED ON. Returns `(wlan, ip)`.
+10. **AP mode decision**: if `_force_provision` OR `ip is None`:
+    - `start_ap_provisioning(cfg)` — open AP at `192.168.4.1`
+    - `io.start_provisioning_blink()` — slow double-blink LED pattern
+    - `main()` runs only `start_server(mode="ap")` — no announce, no control loop
+11. **STA mode** (normal boot):
+    - `state.attach_wlan_info(wlan, cfg)` — caches MAC, IP, hostname, port.
+    - Initialises hardware WDT (`WDT(timeout=8000)` — 8-second timeout). Must be created **after** `connect_wifi()` returns (boot WiFi can take 30s+ and would trigger a spurious reboot).
+    - `main()` async task:
+      - `start_metrics()` — launches background event-loop utilisation meter.
+      - Spawns `announce_then_retry_once()` — tries POST to hub; if it fails, waits 60 s and retries once.
+      - Spawns `control_loop()` — hysteresis loop; also feeds the WDT every 200ms via its chunked-sleep loop. If the loop hangs or dies, the WDT expires → hard reboot → WiFi reconnects + re-announces.
+      - Spawns `wifi_watchdog_loop()` — monitors link health, reconnects with exponential backoff on drop.
+      - Spawns `reboot_scheduler_loop()` — syncs NTP after WiFi connect, then polls every 60s; triggers `machine.soft_reset()` at the configured hour/minute (disabled by default). Not spawned in AP mode.
+      - `await start_server()` — Microdot HTTP server on `0.0.0.0:<api_port>`.
 
 ## Firmware requirements
 
@@ -187,5 +192,8 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
   - `urequests` does not support the `json=` kwarg — pass pre-serialised `ujson.dumps(body)` as `data=` with explicit `Content-Type: application/json` header.
   - `usocket.setdefaulttimeout()` is used to set per-request timeouts and restored to `None` afterwards.
   - DHT11 can return implausible readings; `DHTReader.plausible()` validates `-10 ≤ t ≤ 60` and `0 ≤ h ≤ 100`.
+  - **`machine.reset_cause()` semantics on rp2**: `machine.reset()` triggers a watchdog-driven hard reset → `WDT_RESET`. `machine.soft_reset()` correctly registers as `SOFT_RESET`. Use `machine.soft_reset()` for scheduled/user-initiated reboots so `reset_cause()` can distinguish them from genuine WDT reboots. `machine.reset()` is reserved for full power-cycle paths (`POST /provision`).
+  - **No battery-backed RTC**: `time.localtime()` is garbage until NTP-synced. Any wall-clock feature must NTP-sync first (blocking, in the STA boot path — never from an async task). NTP-sync logic lives in `app/reboot_scheduler.py`.
+- **`uptime.json`** is a runtime-persisted file at flash root (like `config.json`). Created by `init_uptime()` on every boot. Schema: `{"cumulative_ms": int, "reboot_done_date": "YYYY-MM-DD"}`. Device-local only — never sent to the hub. Atomic write via `.tmp` + `os.rename`.
 - **Persist config** with `save_config(cfg)` — atomic write via `config.json.tmp` + `os.rename`. Never `open('config.json','w')` directly.
 - **`POST /provision` `wifi` key** is the only field that persists to flash. `pins`, `active_high` (via `POST /setup`), and setpoints (via `POST /setpoints`) are runtime-only (lost on reboot).

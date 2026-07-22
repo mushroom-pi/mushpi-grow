@@ -26,6 +26,8 @@ if errors:
         print(err)
     io.all_off()
     io.error_blink_blocking()
+from app.uptime import init_uptime
+init_uptime()
 state.init_system_info(cfg)
 state.check_mdns_firmware(cfg["device_name"])
 
@@ -68,6 +70,9 @@ async def main():
         await start_server(cfg, ap, io, sensor, mode="ap")
     else:
         wdt = WDT(timeout=8000)
+        from app.reboot_scheduler import reboot_scheduler_loop
+        asyncio.create_task(reboot_scheduler_loop(
+            cfg, wlan, io, sensor, stop_event=stop_event))
         asyncio.create_task(announce_then_retry_once(
             cfg, wlan, io, delay_s=60, timeout_s=2, stop_event=stop_event))
         asyncio.create_task(control_loop(

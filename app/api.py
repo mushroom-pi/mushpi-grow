@@ -7,6 +7,7 @@ from .metrics import system_snapshot
 from .control import is_control_enabled, set_control_enabled, evaluate_hysteresis
 from .config_loader import save_config
 from .shutdown import reboot
+from . import uptime
 
 try:
     with open('app/provision.html', 'r') as f:
@@ -44,7 +45,7 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
             'Access-Control-Allow-Headers': 'Content-Type',
             'Access-Control-Max-Age': '600',
         }
-    app.options_handler = _options_with_cors
+    app.options_handler = _options_with_cors 
 
     @app.get('/ping')
     def _pin(req):
@@ -52,11 +53,15 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
     @app.get('/health')
     def _health(req):
-        return system_snapshot(wlan)
+        snap = system_snapshot(wlan)
+        snap["uptime"] = uptime.get_uptime_info()
+        return snap
 
     @app.get('/system')
     def system_info(req):
-        return get_system_info()
+        info = get_system_info()
+        info["uptime"] = uptime.get_uptime_info()
+        return info
 
     @app.get('/setpoints')
     def _getsp(req): return setpoints
@@ -204,6 +209,7 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
         return {
             "system": get_system_info(),
             "health": system_snapshot(wlan),
+            "uptime": uptime.get_uptime_info(),
             "devices": devices,
             "sensors": {
                 "dht": sensor.get_latest_dht_read(),

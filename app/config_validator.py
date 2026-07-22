@@ -93,4 +93,31 @@ def validate_config(cfg):
         if _require_int("control.hyst_temp", ht, errors):
             _range_check("control.hyst_temp", ht, 0, 50, errors)
 
+    # reboot: optional, but if present must be dict with valid fields
+    if "reboot" in cfg:
+        rb = cfg["reboot"]
+        if not isinstance(rb, dict):
+            errors.append("ERROR: reboot must be a dict")
+        else:
+            en = rb.get("enabled")
+            if not isinstance(en, bool):
+                errors.append("ERROR: reboot.enabled must be a boolean")
+
+            hr = rb.get("hour")
+            if _require_int("reboot.hour", hr, errors):
+                _range_check("reboot.hour", hr, 0, 23, errors)
+
+            mn = rb.get("minute")
+            if _require_int("reboot.minute", mn, errors):
+                _range_check("reboot.minute", mn, 0, 59, errors)
+
+            nh = rb.get("ntp_host")
+            if _require_str("reboot.ntp_host", nh, errors):
+                if nh == "":
+                    errors.append("ERROR: reboot.ntp_host must be a non-empty string")
+
+            tz = rb.get("ntp_tz_offset_hours")
+            if _require_int("reboot.ntp_tz_offset_hours", tz, errors):
+                _range_check("reboot.ntp_tz_offset_hours", tz, -12, 14, errors)
+
     return errors

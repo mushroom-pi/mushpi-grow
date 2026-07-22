@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: Pico Unit API
-  version: 0.3.9
+  version: 0.4.0
   description: 'The contract served by any pico unit succesfully connected to a Wifi and running this software'
 servers:
   - url: '{{baseUrl}}'
@@ -15,13 +15,53 @@ paths:
   /health:
     get:
       summary: Health
-      responses: {}
+      responses:
+        '200':
+          description: System health snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uptime:
+                    type: object
+                    properties:
+                      total_s:
+                        type: integer
+                        description: Cumulative uptime across scheduled reboots (seconds)
+                      since_boot_s:
+                        type: integer
+                        description: Current session uptime (seconds)
+                      reboot_reason:
+                        type: string
+                        enum: [power_on, watchdog, scheduled, unknown]
+                        description: Reason for the most recent reboot
       tags:
         - monitoring
   /system:
     get:
       summary: System
-      responses: {}
+      responses:
+        '200':
+          description: System information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uptime:
+                    type: object
+                    properties:
+                      total_s:
+                        type: integer
+                        description: Cumulative uptime across scheduled reboots (seconds)
+                      since_boot_s:
+                        type: integer
+                        description: Current session uptime (seconds)
+                      reboot_reason:
+                        type: string
+                        enum: [power_on, watchdog, scheduled, unknown]
+                        description: Reason for the most recent reboot
       tags:
         - monitoring
   /sensors:
@@ -144,4 +184,24 @@ paths:
           deprecated: false
           schema: {}
           example: '1'
-      responses: {}
+      responses:
+        '200':
+          description: Full system snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uptime:
+                    type: object
+                    properties:
+                      total_s:
+                        type: integer
+                        description: Cumulative uptime across scheduled reboots (seconds)
+                      since_boot_s:
+                        type: integer
+                        description: Current session uptime (seconds)
+                      reboot_reason:
+                        type: string
+                        enum: [power_on, watchdog, scheduled, unknown]
+                        description: Reason for the most recent reboot
