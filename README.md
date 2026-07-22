@@ -53,6 +53,7 @@ This software allows minimal communication through the Pico's integrated LED. Wh
 | OFF | Wi-Fi lost or not connected — attempting reconnection / booting |
 | SOLID | Wi-Fi connected, awaiting server announce |
 | HEARTBEAT (even blink) | Normal operation |
+| CONFIG ERROR (3 fast blinks, 1s pause) | config.json is malformed or has invalid values — check serial output for details |
 | SLOW DOUBLE-BLINK (200/200/200/800ms) | AP provisioning mode — awaiting Wi-Fi credentials |
 
 ### Provisioning (First-Time Setup or Wi-Fi Recovery)

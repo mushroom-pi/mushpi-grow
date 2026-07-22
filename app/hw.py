@@ -120,6 +120,19 @@ class IO:
         self.stop_led_heartbeat()
         self.led_onboard.value(1 if on else 0)
 
+    
+    def error_blink_blocking(self, blinks=3, on_ms=150, off_ms=150, pause_ms=1000):
+        """Terminal fatal-state blink. Blocking, never returns.
+        Use only when the device cannot continue (e.g. config validation
+        failed before the event loop starts)."""
+        while True:
+            for _ in range(blinks):
+                self.led_onboard.value(1)
+                time.sleep_ms(on_ms)
+                self.led_onboard.value(0)
+                time.sleep_ms(off_ms)
+            time.sleep_ms(pause_ms)
+
     def hum_on(self):
         self.hum(self._on())
         status["humidifier"] = True

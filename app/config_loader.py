@@ -13,14 +13,20 @@ _DEFAULT = {
     "control": {"period_s": 5, "hyst_hum": 5, "hyst_temp": 1},
 }
 
-def load_config(path="config.json"):
+def _default_copy():
     cfg = _DEFAULT.copy()
-    # deep-copy the nested wifi dict so defaults aren't mutated
     cfg["wifi"] = _DEFAULT["wifi"].copy()
     cfg["control"] = _DEFAULT["control"].copy()
+    return cfg
+
+def load_config(path="config.json"):
+    cfg = _default_copy()
+    load_errors = []
     try:
         with open(path) as f:
             data = ujson.load(f)
+            if not isinstance(data, dict):
+                return _default_copy(), ["ERROR: config.json top-level value must be a dict"]
             # shallow merge
             for k, v in data.items():
                 if isinstance(v, dict) and k in cfg:
@@ -29,7 +35,11 @@ def load_config(path="config.json"):
                     cfg[k] = v
     except OSError:
         print("config: using defaults (no config.json)")
-    return cfg
+    except ValueError as e:
+        return _default_copy(), ["ERROR: config.json contains malformed JSON: " + str(e)]
+    except (TypeError, AttributeError) as e:
+        return _default_copy(), ["ERROR: config.json parse failed: " + str(e)]
+    return cfg, load_errors
 
 def save_config(cfg, path="config.json"):
     """Atomic write: serialize to .tmp then rename over path."""

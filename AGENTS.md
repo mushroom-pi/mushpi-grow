@@ -41,16 +41,17 @@ mushpi-grow/
 
 1. `IO()` — initialises GPIO, turns onboard LED ON.
 2. `DHTReader()` — initialises DHT11 sensor.
-3. `load_config()` — reads `config.json` with shallow merge over defaults.
-4. `state.init_system_info(cfg)` — caches board/MicroPython/build metadata.
-5. `state.check_mdns_firmware(cfg["device_name"])` — warns if firmware < v1.26.0 (mDNS won't work; see README).
-6. **Force-provision check** — reads GP0 (internal pull-up). If LOW, sets `_force_provision = True`.
-7. `connect_wifi()` — tries each candidate network (primary + `networks` list), up to `retries` per SSID; LED stays OFF until connected, then LED ON. Returns `(wlan, ip)`.
-8. **AP mode decision**: if `_force_provision` OR `ip is None`:
+3. `load_config()` — reads `config.json` with shallow merge over defaults. Returns `(cfg, load_errors)` — catches malformed JSON and non-object top-level gracefully.
+4. `validate_config(cfg)` — validates all fields (device_name, api_port, hub_url, wifi, control) for type and range correctness. Accumulates all errors. If any errors (load or validation): prints them to serial, then enters terminal `error_blink_blocking()` state (3 fast blinks + pause forever). Device does NOT start WiFi, control loop, or server.
+5. `state.init_system_info(cfg)` — caches board/MicroPython/build metadata.
+6. `state.check_mdns_firmware(cfg["device_name"])` — warns if firmware < v1.26.0 (mDNS won't work; see README).
+7. **Force-provision check** — reads GP0 (internal pull-up). If LOW, sets `_force_provision = True`.
+8. `connect_wifi()` — tries each candidate network (primary + `networks` list), up to `retries` per SSID; LED stays OFF until connected, then LED ON. Returns `(wlan, ip)`.
+9. **AP mode decision**: if `_force_provision` OR `ip is None`:
    - `start_ap_provisioning(cfg)` — open AP at `192.168.4.1`
    - `io.start_provisioning_blink()` — slow double-blink LED pattern
    - `main()` runs only `start_server(mode="ap")` — no announce, no control loop
- 9. **STA mode** (normal boot):
+10. **STA mode** (normal boot):
    - `state.attach_wlan_info(wlan, cfg)` — caches MAC, IP, hostname, port.
    - Initialises hardware WDT (`WDT(timeout=8000)` — 8-second timeout). Must be created **after** `connect_wifi()` returns (boot WiFi can take 30s+ and would trigger a spurious reboot).
    - `main()` async task:
@@ -157,6 +158,7 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 - **SOLID ON**: WiFi connected but hub announcement failed (or still in progress).
 - **BLINKING** (heartbeat): WiFi connected and hub announcement succeeded.
 - **PROVISIONING** (slow double-blink): 200ms on / 200ms off / 200ms on / 800ms off — AP mode active, awaiting Wi-Fi credentials via web form.
+- **CONFIG ERROR** (3 fast blinks): 150ms on / 150ms off × 3, 1000ms pause, repeating — `config.json` is malformed or has invalid values; check serial console for details. Terminal state — the device does not start any services.
 
 ## Shared State Rules
 

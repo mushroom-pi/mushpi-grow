@@ -18,7 +18,14 @@ io = IO()  # This will turn the LED ON
 sensor = DHTReader()
 
 # General variables
-cfg = load_config()
+cfg, load_errors = load_config()
+from app.config_validator import validate_config
+errors = load_errors + validate_config(cfg)
+if errors:
+    for err in errors:
+        print(err)
+    io.all_off()
+    io.error_blink_blocking()
 state.init_system_info(cfg)
 state.check_mdns_firmware(cfg["device_name"])
 
