@@ -50,7 +50,7 @@ This software allows minimal communication through the Pico's integrated LED. Wh
 
 | LED Pattern | Meaning |
 |-------------|---------|
-| OFF | Wi-Fi not connected / booting |
+| OFF | Wi-Fi lost or not connected — attempting reconnection / booting |
 | SOLID | Wi-Fi connected, awaiting server announce |
 | HEARTBEAT (even blink) | Normal operation |
 | SLOW DOUBLE-BLINK (200/200/200/800ms) | AP provisioning mode — awaiting Wi-Fi credentials |
@@ -67,3 +67,14 @@ On first boot (no Wi-Fi configured) or after a Wi-Fi connection failure, the Pic
 6. The Pico saves the credentials to `config.json`, reboots, and connects to your network.
 
 **Force-provision**: Hold **GP0 to GND** during boot to force provisioning mode, even if Wi-Fi credentials are already configured. This is useful for changing networks or recovering from bad credentials.
+
+### WiFi Auto-Reconnection
+
+If WiFi drops for any reason (router restart, signal interference, etc.), the Pico handles it automatically without human intervention:
+
+1. **Detection**: The onboard watchdog monitors the WiFi link every 5 seconds. Within ~5s of a disconnection, the LED turns **OFF** and the Pico prints a diagnostic message to the serial console.
+2. **Reconnection attempts**: It tries to reconnect immediately, retrying with increasing delays: **5 seconds → 10 seconds → 30 seconds → 60 seconds** (stays at 60s until the link returns). All of the configured WiFi networks (primary SSID + any fallback `networks` in `config.json`) are tried in order on each attempt.
+3. **Recovery**: When reconnection succeeds, the LED resumes its **heartbeat** pattern, the Pico announces itself to the server again (so the server knows the new IP), and normal polling resumes.
+4. **Control continues**: Throughout the entire outage, the grow tent regulation (humidity/temperature control, relay actuation) keeps running independently. The Pico does **not** reboot on WiFi loss — only the connection is affected.
+
+**What you'll notice**: If your server dashboard shows a unit as "unreachable" but the relays are still clicking and the sensor values look normal, the Pico is fine — wait up to 60 seconds and it should reconnect on its own.

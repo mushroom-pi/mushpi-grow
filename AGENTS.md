@@ -23,10 +23,10 @@ mushpi-grow/
 │   ├── hw.py            # IO class — GPIO init, relay control, LED heartbeat
 │   ├── sensor.py        # DHTReader — reads DHT11, updates status
 │   ├── control.py       # control_loop() — hysteresis-based async coroutine
-│   ├── announce.py      # announce_then_retry_once() — POSTs presence to hub on boot
+│   ├── announce.py      # announce_then_retry_once() — POSTs presence to hub (boot + runtime re-announce); idempotent/re-invocable
 │   ├── api.py           # Microdot REST API (port 5000)
 │   ├── metrics.py       # system_snapshot() — RAM, FS, Wi‑Fi RSSI, MCU temp, uptime, loop util
-│   ├── wifi.py          # connect_wifi() — blocking STA connect with network.hostname()
+│   ├── wifi.py          # connect_wifi() (blocking boot connect), reconnect_once_async() (async reconnect), wifi_watchdog_loop() (link monitor with backoff)
 │   ├── config_loader.py # load_config() + save_config() — atomic config read/write
 │   ├── provision.html   # HTML form served in AP provisioning mode
 │   └── shutdown.py      # graceful_shutdown() + reboot()
@@ -56,6 +56,7 @@ mushpi-grow/
      - `start_metrics()` — launches background event-loop utilisation meter.
      - Spawns `announce_then_retry_once()` — tries POST to hub; if it fails, waits 60 s and retries once.
      - Spawns `control_loop()` — hysteresis loop.
+     - Spawns `wifi_watchdog_loop()` — monitors link health, reconnects with exponential backoff on drop.
      - `await start_server()` — Microdot HTTP server on `0.0.0.0:<api_port>`.
 
 ## Firmware requirements
@@ -169,6 +170,9 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 
 - **No type hints** — MicroPython support is limited; CPython type annotations are stripped before upload.
 - **Never use blocking calls** inside async tasks; use `await asyncio.sleep_ms()`.
+- **WiFi runtime operations must be async**: the blocking `connect_wifi()` is boot-only and must never be called from a running task. Runtime reconnect/monitoring uses `reconnect_once_async()` and `wifi_watchdog_loop()`, which poll with `await asyncio.sleep_ms()` so the control loop and server keep running.
+- **Module ownership**: `app/wifi.py` owns all WiFi state transitions (connect, reconnect, link monitoring). `app/control.py` owns sensor sampling + hysteresis only. No cross-module WiFi logic in control.py.
+- **`announce_then_retry_once` is re-entrant**: it is safe to call at runtime (not just boot). The caller must cancel any prior announce task before spawning a new one to avoid overlapping heartbeat/LED control.
 - **HTTP handlers must not perform blocking sensor reads** (e.g. `sensor.d.measure()`) — use the last cached `status` values from `app/state.py` instead. The one exception is `GET /sensors?force=1`, which triggers an on-demand measurement intentionally.
 - **All I/O is async** — use `asyncio.create_task()` for background work.
 - **Error handling**: bare `except:` is acceptable; always log errors with `print()`.

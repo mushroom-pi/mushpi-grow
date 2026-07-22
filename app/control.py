@@ -49,9 +49,7 @@ async def control_loop(cfg, wlan, io, sensor, stop_event=None):
     relays_latched = False  # ensures relays_off() called only once when disabled
 
     while not (stop_event and stop_event.is_set()):
-        if not wlan.isconnected():
-            # Try to nudge reconnect (optional)
-            pass
+        # WiFi monitoring/reconnect handled by wifi_watchdog_loop
 
         # Always sample the sensor so API/server polling stays fresh
         # regardless of whether control is enabled (observability vs actuation).

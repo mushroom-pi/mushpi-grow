@@ -1,8 +1,9 @@
-import network, time
+import network, time, uasyncio as asyncio
 
-def connect_wifi(wifi_cfg, hostname=None, io=None, retries=3, retry_gap_ms=5000):
-    """Try each candidate network in order; return (wlan, ip) or (wlan, None)."""
-    # Build candidate list
+
+def _candidates(wifi_cfg):
+    """Build ordered list of (ssid, password) from config.
+    Primary ssid/password first, then any entries in 'networks' list."""
     candidates = []
     nets = wifi_cfg.get("networks")
     if nets and isinstance(nets, list) and len(nets) > 0:
@@ -19,6 +20,12 @@ def connect_wifi(wifi_cfg, hostname=None, io=None, retries=3, retry_gap_ms=5000)
     # Fallback: if nothing from networks and no primary, empty list
     if not candidates and primary_ssid:
         candidates = [(primary_ssid, wifi_cfg.get("password", ""))]
+    return candidates
+
+
+def connect_wifi(wifi_cfg, hostname=None, io=None, retries=3, retry_gap_ms=5000):
+    """Try each candidate network in order; return (wlan, ip) or (wlan, None)."""
+    candidates = _candidates(wifi_cfg)
 
     # No networks configured — skip connection attempts, let caller enter AP mode
     if not candidates:
@@ -66,6 +73,110 @@ def connect_wifi(wifi_cfg, hostname=None, io=None, retries=3, retry_gap_ms=5000)
         io.led_on()
     print("WiFi:", "up" if ip else "down", ip)
     return (wlan, ip)
+
+
+_BACKOFF_MS = [5000, 10000, 30000, 60000]
+
+
+async def reconnect_once_async(wlan, wifi_cfg, io=None, per_attempt_ms=10000):
+    """Try each candidate network once (async). Returns True on success."""
+    try:
+        wlan.active(True)
+    except:
+        pass
+
+    for ssid, password in _candidates(wifi_cfg):
+        if wlan.isconnected():
+            return True
+        try:
+            wlan.disconnect()
+        except:
+            pass
+        try:
+            wlan.connect(ssid, password)
+        except:
+            print("wifi: connect error for", ssid)
+            continue
+
+        # Poll async until connected or timeout
+        elapsed = 0
+        while elapsed < per_attempt_ms:
+            if wlan.isconnected():
+                print("wifi: reconnected to", ssid)
+                return True
+            await asyncio.sleep_ms(100)
+            elapsed += 100
+
+        # This candidate failed
+        try:
+            wlan.disconnect()
+        except:
+            pass
+        print("wifi:", ssid, "failed")
+
+    return False
+
+
+async def wifi_watchdog_loop(cfg, wlan, io=None, stop_event=None):
+    """Monitor WiFi link; reconnect with backoff when it drops."""
+    from .state import attach_wlan_info
+    from .announce import announce_then_retry_once
+
+    poll_interval_ms = 5000
+    _announce_task = None
+
+    while not (stop_event and stop_event.is_set()):
+        if wlan.isconnected():
+            await asyncio.sleep_ms(poll_interval_ms)
+            continue
+
+        # --- Disconnected transition ---
+        rssi = "?"
+        try:
+            rssi = str(wlan.status('rssi'))
+        except:
+            pass
+        print("wifi: link down — starting reconnect (RSSI was " + rssi + ")")
+
+        if io and hasattr(io, "led_solid"):
+            try:
+                io.led_solid(False)
+            except:
+                pass
+
+        idx = 0
+        while not (stop_event and stop_event.is_set()):
+            print("wifi: reconnect attempt", idx + 1)
+            ok = await reconnect_once_async(wlan, cfg["wifi"], io)
+            if ok:
+                attach_wlan_info(wlan, cfg)
+                ip = "?"
+                try:
+                    ip = wlan.ifconfig()[0]
+                except:
+                    pass
+                print("wifi: link up at", ip)
+
+                # Cancel stale announce task, spawn fresh one
+                if _announce_task and not _announce_task.done():
+                    _announce_task.cancel()
+                _announce_task = asyncio.create_task(
+                    announce_then_retry_once(cfg, wlan, io,
+                                             delay_s=60, timeout_s=2,
+                                             stop_event=stop_event))
+                break
+
+            # Backoff
+            delay = _BACKOFF_MS[min(idx, len(_BACKOFF_MS) - 1)]
+            print("wifi: reconnect failed — retry in", delay // 1000, "s")
+            # Sleep in 200ms chunks for responsive shutdown
+            remaining = delay
+            while remaining > 0:
+                if stop_event and stop_event.is_set():
+                    return
+                await asyncio.sleep_ms(min(200, remaining))
+                remaining -= 200
+            idx += 1
 
 
 def ap_setup_ssid(device_name):

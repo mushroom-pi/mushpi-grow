@@ -4,7 +4,7 @@ from machine import Pin
 
 from app.config_loader import load_config
 import app.state as state
-from app.wifi import connect_wifi, start_ap_provisioning
+from app.wifi import connect_wifi, start_ap_provisioning, wifi_watchdog_loop
 from app.hw import IO
 from app.sensor import DHTReader
 from app.control import control_loop
@@ -64,6 +64,8 @@ async def main():
             cfg, wlan, io, delay_s=60, timeout_s=2, stop_event=stop_event))
         asyncio.create_task(control_loop(
             cfg, wlan, io, sensor, stop_event=stop_event))
+        asyncio.create_task(wifi_watchdog_loop(
+            cfg, wlan, io, stop_event=stop_event))
         await start_server(cfg, wlan, io, sensor, mode="sta")
 
 try:
