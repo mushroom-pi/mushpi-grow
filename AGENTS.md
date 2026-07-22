@@ -50,12 +50,13 @@ mushpi-grow/
    - `start_ap_provisioning(cfg)` — open AP at `192.168.4.1`
    - `io.start_provisioning_blink()` — slow double-blink LED pattern
    - `main()` runs only `start_server(mode="ap")` — no announce, no control loop
-9. **STA mode** (normal boot):
+ 9. **STA mode** (normal boot):
    - `state.attach_wlan_info(wlan, cfg)` — caches MAC, IP, hostname, port.
+   - Initialises hardware WDT (`WDT(timeout=8000)` — 8-second timeout). Must be created **after** `connect_wifi()` returns (boot WiFi can take 30s+ and would trigger a spurious reboot).
    - `main()` async task:
      - `start_metrics()` — launches background event-loop utilisation meter.
      - Spawns `announce_then_retry_once()` — tries POST to hub; if it fails, waits 60 s and retries once.
-     - Spawns `control_loop()` — hysteresis loop.
+     - Spawns `control_loop()` — hysteresis loop; also feeds the WDT every 200ms via its chunked-sleep loop. If the loop hangs or dies, the WDT expires → hard reboot → WiFi reconnects + re-announces.
      - Spawns `wifi_watchdog_loop()` — monitors link health, reconnects with exponential backoff on drop.
      - `await start_server()` — Microdot HTTP server on `0.0.0.0:<api_port>`.
 
@@ -172,6 +173,7 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 - **Never use blocking calls** inside async tasks; use `await asyncio.sleep_ms()`.
 - **WiFi runtime operations must be async**: the blocking `connect_wifi()` is boot-only and must never be called from a running task. Runtime reconnect/monitoring uses `reconnect_once_async()` and `wifi_watchdog_loop()`, which poll with `await asyncio.sleep_ms()` so the control loop and server keep running.
 - **Module ownership**: `app/wifi.py` owns all WiFi state transitions (connect, reconnect, link monitoring). `app/control.py` owns sensor sampling + hysteresis only. No cross-module WiFi logic in control.py.
+- **WDT (Watchdog Timer)**: STA mode only (not AP provisioning). Initialised **after** `connect_wifi()` returns (boot WiFi can take 30s+ and would trigger a spurious reboot). Fed from `control_loop`'s 200ms chunked-sleep loop — covers event-loop-wide blocking hangs and control_loop task death. Not fed from an independent task (would miss control_loop death).
 - **`announce_then_retry_once` is re-entrant**: it is safe to call at runtime (not just boot). The caller must cancel any prior announce task before spawning a new one to avoid overlapping heartbeat/LED control.
 - **HTTP handlers must not perform blocking sensor reads** (e.g. `sensor.d.measure()`) — use the last cached `status` values from `app/state.py` instead. The one exception is `GET /sensors?force=1`, which triggers an on-demand measurement intentionally.
 - **All I/O is async** — use `asyncio.create_task()` for background work.

@@ -44,7 +44,7 @@ def evaluate_hysteresis(cfg, io):
         else:
             io.heat_off()
 
-async def control_loop(cfg, wlan, io, sensor, stop_event=None):
+async def control_loop(cfg, wlan, io, sensor, stop_event=None, wdt=None):
     P = cfg["control"]["period_s"]
     relays_latched = False  # ensures relays_off() called only once when disabled
 
@@ -76,5 +76,7 @@ async def control_loop(cfg, wlan, io, sensor, stop_event=None):
         for _ in range(chunks):
             if stop_event and stop_event.is_set():
                 return
+            if wdt:
+                wdt.feed()
             await asyncio.sleep_ms(200)
 

@@ -78,3 +78,9 @@ If WiFi drops for any reason (router restart, signal interference, etc.), the Pi
 4. **Control continues**: Throughout the entire outage, the grow tent regulation (humidity/temperature control, relay actuation) keeps running independently. The Pico does **not** reboot on WiFi loss — only the connection is affected.
 
 **What you'll notice**: If your server dashboard shows a unit as "unreachable" but the relays are still clicking and the sensor values look normal, the Pico is fine — wait up to 60 seconds and it should reconnect on its own.
+
+### Watchdog Timer (Auto-Recovery from Freezes)
+
+The Pico has a hardware watchdog timer that acts as a dead man's switch: if the control loop freezes or hangs for more than **8 seconds**, the Pico automatically hard-reboots. After the reboot, it reconnects to WiFi, re-announces to the server, and resumes normal operation — all without human intervention.
+
+This covers rare but critical failures like memory corruption, unhandled exceptions, or an infinite loop. Combined with WiFi auto-reconnection, the system is designed to self-heal from most runtime failures.

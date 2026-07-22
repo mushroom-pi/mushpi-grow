@@ -1,6 +1,6 @@
 import uasyncio as asyncio
 
-from machine import Pin
+from machine import Pin, WDT
 
 from app.config_loader import load_config
 import app.state as state
@@ -60,10 +60,11 @@ async def main():
         # Relays stay in boot-safe OFF state
         await start_server(cfg, ap, io, sensor, mode="ap")
     else:
+        wdt = WDT(timeout=8000)
         asyncio.create_task(announce_then_retry_once(
             cfg, wlan, io, delay_s=60, timeout_s=2, stop_event=stop_event))
         asyncio.create_task(control_loop(
-            cfg, wlan, io, sensor, stop_event=stop_event))
+            cfg, wlan, io, sensor, stop_event=stop_event, wdt=wdt))
         asyncio.create_task(wifi_watchdog_loop(
             cfg, wlan, io, stop_event=stop_event))
         await start_server(cfg, wlan, io, sensor, mode="sta")
