@@ -46,7 +46,7 @@ mushpi-grow/
 2. `DHTReader()` — initialises DHT11 sensor.
 3. `load_config()` — reads `config.json` with shallow merge over defaults. Returns `(cfg, load_errors)` — catches malformed JSON and non-object top-level gracefully.
 4. `validate_config(cfg)` — validates all fields (device_name, api_port, hub_url, wifi, control) for type and range correctness. Accumulates all errors. If any errors (load or validation): prints them to serial, then enters terminal `error_blink_blocking()` state (3 fast blinks + pause forever). Device does NOT start WiFi, control loop, or server.
-5. `init_uptime()` — classifies reboot reason via `machine.reset_cause()`: `PWRON_RESET` → "power_on", `WDT_RESET` → "watchdog", `SOFT_RESET` → "scheduled". Loads cumulative uptime from `uptime.json` for scheduled reboots; resets to 0 for others. Persists a fresh `uptime.json` to flash.
+5. `init_uptime()` — reads `uptime.json` sentinel first: if `pending_type` is set ("scheduled"/"soft"/"hard"), that's the reboot reason (preserving cumulative for scheduled/soft, resetting for hard). Falls back to `machine.reset_cause()` only when no sentinel exists (unexpected reboots: WDT → "watchdog", PWRON → "power_on"). Writes fresh `uptime.json` to flash.
 6. `state.init_system_info(cfg)` — caches board/MicroPython/build metadata.
 7. `state.check_mdns_firmware(cfg["device_name"])` — warns if firmware < v1.26.0 (mDNS won't work; see README).
 8. **Force-provision check** — reads GP0 (internal pull-up). If LOW, sets `_force_provision = True`.
@@ -110,6 +110,7 @@ Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in
 | GET / POST | `/control`  | `{"enabled": bool}` — disables control immediately (calls `relays_off()` sync) |
 | GET / POST | `/setup`    | GPIO pin mapping + `active_high`                          |
 | POST       | `/provision`| Wi-Fi credential provisioning (AP mode only — writes config.json + reboots) |
+| POST       | `/reboot`   | `{"type": "soft"\|"hard"}` — triggers graceful reboot (soft = `machine.soft_reset()`, hard = `machine.reset()`). Response returns before reboot executes. |
 
 ## API Specification
 
@@ -192,7 +193,7 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
   - `urequests` does not support the `json=` kwarg — pass pre-serialised `ujson.dumps(body)` as `data=` with explicit `Content-Type: application/json` header.
   - `usocket.setdefaulttimeout()` is used to set per-request timeouts and restored to `None` afterwards.
   - DHT11 can return implausible readings; `DHTReader.plausible()` validates `-10 ≤ t ≤ 60` and `0 ≤ h ≤ 100`.
-  - **`machine.reset_cause()` semantics on rp2**: `machine.reset()` triggers a watchdog-driven hard reset → `WDT_RESET`. `machine.soft_reset()` correctly registers as `SOFT_RESET`. Use `machine.soft_reset()` for scheduled/user-initiated reboots so `reset_cause()` can distinguish them from genuine WDT reboots. `machine.reset()` is reserved for full power-cycle paths (`POST /provision`).
+  - **Sentinel-based reboot classification**: `machine.reset_cause()` on rp2 is unreliable for distinguishing intentional from watchdog reboots (both `machine.reset()` and `machine.soft_reset()` may report as `WDT_RESET`). Instead, **all intentional reboots** (scheduled, `POST /reboot`) write a `pending_type` sentinel to `uptime.json` via `mark_pending_reboot()` before resetting. `init_uptime()` reads the sentinel first; `reset_cause()` is used only as a fallback for unexpected reboots.
   - **No battery-backed RTC**: `time.localtime()` is garbage until NTP-synced. Any wall-clock feature must NTP-sync first (blocking, in the STA boot path — never from an async task). NTP-sync logic lives in `app/reboot_scheduler.py`.
 - **`uptime.json`** is a runtime-persisted file at flash root (like `config.json`). Created by `init_uptime()` on every boot. Schema: `{"cumulative_ms": int, "reboot_done_date": "YYYY-MM-DD"}`. Device-local only — never sent to the hub. Atomic write via `.tmp` + `os.rename`.
 - **Persist config** with `save_config(cfg)` — atomic write via `config.json.tmp` + `os.rename`. Never `open('config.json','w')` directly.

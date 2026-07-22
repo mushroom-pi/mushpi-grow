@@ -117,8 +117,9 @@ async def reboot_scheduler_loop(cfg, wlan, io, sensor, stop_event=None):
                 print("reboot_scheduler: scheduled reboot triggered"
                       " at %02d:%02d" % (now_hour, now_minute))
 
-                # Persist cumulative uptime + today's date before reboot
-                uptime.persist_cumulative()
+                # Mark this as a scheduled reboot in uptime.json sentinel
+                # (reset_cause() on rp2 cannot distinguish soft_reset from WDT)
+                uptime.mark_pending_reboot("scheduled")
 
                 # Import and call soft_reboot from shutdown
                 from .shutdown import soft_reboot

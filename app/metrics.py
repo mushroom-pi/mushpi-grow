@@ -81,8 +81,14 @@ def _fs_usage(path='/'):
         return {"total": None, "used": None, "free": None, "used_pct": None}
     
 def _up_time_s():
-    uptime_ms = time.ticks_diff(time.ticks_ms(), boot_ms)
-    return max(0, uptime_ms // 1000)
+    """Return cumulative total uptime in seconds (preserved across scheduled reboots)."""
+    try:
+        from . import uptime
+        return uptime.get_uptime_info()["total_s"]
+    except Exception:
+        # Fallback to session uptime if uptime module not available
+        uptime_ms = time.ticks_diff(time.ticks_ms(), boot_ms)
+        return max(0, uptime_ms // 1000)
 
 def system_snapshot(wlan=None):
     # Heap

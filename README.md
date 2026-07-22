@@ -103,3 +103,17 @@ Embedded systems running 24/7 accumulate memory fragmentation and subtle resourc
 4. **Guards** — Won't reboot twice in the same day, won't reboot before NTP syncs (no clock = no scheduled reboot), and has a 5-minute boot grace period to avoid immediate re-reboot.
 
 The `GET /health` and `GET /system` endpoints report `uptime.reboot_reason` so you can tell at a glance whether the last restart was scheduled, a watchdog recovery, or an unexpected power cycle.
+
+### Manual Reboot (API)
+
+You can trigger a reboot at any time via the REST API:
+
+```bash
+# Soft reboot — preserves cumulative uptime
+curl -X POST http://<pico-ip>:5000/reboot -d '{"type":"soft"}'
+
+# Hard reboot — full power-cycle, resets uptime
+curl -X POST http://<pico-ip>:5000/reboot -d '{"type":"hard"}'
+```
+
+The response `{"message":"Reboot initiated","type":"soft"}` returns immediately; the Pico reboots ~2 seconds later. The server also proxies this at `PUT /pico-units/:id/reboot`.

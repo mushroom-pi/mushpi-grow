@@ -12,7 +12,6 @@ except ImportError:
 # as named attributes on the machine module. Fall back to raw integer
 # values for ports that don't expose all constants.
 _PWRON_RESET = getattr(machine, "PWRON_RESET", 1)
-_SOFT_RESET = getattr(machine, "SOFT_RESET", 4)
 _WDT_RESET = getattr(machine, "WDT_RESET", 3)
 
 # Module state
@@ -20,6 +19,9 @@ _cumulative_ms = 0
 _reboot_reason = "unknown"
 _boot_ms = 0
 _UPTIME_PATH = "uptime.json"
+
+# Reboot types that preserve cumulative uptime (vs reset to 0)
+_PRESERVE_TYPES = ("scheduled", "soft")
 
 
 def _atomic_write(path, data):
@@ -34,19 +36,50 @@ def _atomic_write(path, data):
         pass  # best-effort, never crash on flash write failures
 
 
-def _load_done_date():
-    """Load the reboot_done_date from uptime.json, or None."""
+def _load_file():
+    """Load uptime.json as a dict, or empty dict on any error."""
     try:
         with open(_UPTIME_PATH, "r") as f:
-            data = ujson.load(f)
-        return data.get("reboot_done_date", None)
+            return ujson.load(f)
     except Exception:
-        return None
+        return {}
 
 
-def _save_state():
-    """Save current cumulative uptime + done_date to uptime.json."""
-    data = {"cumulative_ms": _cumulative_ms, "reboot_done_date": _load_done_date()}
+def mark_pending_reboot(reboot_type):
+    """Write sentinel to uptime.json before an intentional reboot.
+    
+    reboot_type: "scheduled" | "soft" | "hard"
+    
+    - "scheduled"/"soft": cumulative uptime is preserved across the reboot.
+    - "hard": cumulative uptime is reset to 0 (full power-cycle equivalent).
+    - "scheduled" also stamps today's date to prevent same-day double-trigger.
+    
+    Call this RIGHT before machine.reset() / machine.soft_reset().
+    On the next boot, init_uptime() reads the sentinel and classifies
+    the reboot correctly regardless of what reset_cause() reports.
+    """
+    existing = _load_file()
+    now_ms = time.ticks_ms()
+
+    # Accumulate current session into cumulative
+    session_ms = time.ticks_diff(now_ms, _boot_ms)
+    prev = existing.get("cumulative_ms", 0)
+    total = prev + max(session_ms, 0)
+
+    # For hard reboots, don't carry cumulative forward
+    if reboot_type not in _PRESERVE_TYPES:
+        total = 0
+
+    data = {
+        "cumulative_ms": total,
+        "reboot_done_date": existing.get("reboot_done_date"),
+        "pending_type": reboot_type,
+    }
+
+    # Stamp today's date for scheduled reboots (prevents same-day double-trigger)
+    if reboot_type == "scheduled":
+        data["reboot_done_date"] = today_str()
+
     _atomic_write(_UPTIME_PATH, data)
 
 
@@ -55,45 +88,44 @@ def init_uptime():
     loads/initialises cumulative uptime."""
     global _cumulative_ms, _reboot_reason, _boot_ms
 
-    cause = machine.reset_cause()
     _boot_ms = time.ticks_ms()
+    data = _load_file()
 
-    if cause == _SOFT_RESET:
-        _reboot_reason = "scheduled"
-        try:
-            with open(_UPTIME_PATH, "r") as f:
-                data = ujson.load(f)
+    # 1. Check sentinel first — intentional reboots set pending_type
+    pending = data.get("pending_type")
+    if pending is not None:
+        _reboot_reason = pending
+        if pending in _PRESERVE_TYPES:
             _cumulative_ms = data.get("cumulative_ms", 0)
-        except Exception:
+        else:
             _cumulative_ms = 0
-    elif cause == _WDT_RESET:
+        # Clear the sentinel so an unexpected reboot doesn't inherit it
+        data["pending_type"] = None
+        _atomic_write(_UPTIME_PATH, data)
+        return
+
+    # 2. No sentinel → fall back to reset_cause() for unexpected reboots
+    cause = machine.reset_cause()
+    if cause == _WDT_RESET:
         _reboot_reason = "watchdog"
-        _cumulative_ms = 0
     elif cause == _PWRON_RESET:
         _reboot_reason = "power_on"
-        _cumulative_ms = 0
     else:
         _reboot_reason = "unknown"
-        _cumulative_ms = 0
+    _cumulative_ms = 0
 
-    # Write fresh uptime.json — carries forward reboot_done_date as the
-    # same-day guard so the scheduler does not re-trigger today.
-    _save_state()
+    # Write fresh state (carries forward reboot_done_date as same-day guard)
+    _atomic_write(_UPTIME_PATH, {
+        "cumulative_ms": 0,
+        "reboot_done_date": data.get("reboot_done_date"),
+        "pending_type": None,
+    })
 
 
 def reboot_done_date():
     """Return the last reboot_done_date string, or None."""
-    return _load_done_date()
-
-
-def persist_cumulative():
-    """Persist current cumulative uptime + today's date to uptime.json.
-    Called right before machine.soft_reset()."""
-    now_ms = time.ticks_ms()
-    total = _cumulative_ms + time.ticks_diff(now_ms, _boot_ms)
-    today = today_str()
-    data = {"cumulative_ms": max(total, 0), "reboot_done_date": today}
-    _atomic_write(_UPTIME_PATH, data)
+    data = _load_file()
+    return data.get("reboot_done_date") or None
 
 
 def today_str():

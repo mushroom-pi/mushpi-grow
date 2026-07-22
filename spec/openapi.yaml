@@ -36,6 +36,18 @@ paths:
                         type: string
                         enum: [power_on, watchdog, scheduled, unknown]
                         description: Reason for the most recent reboot
+                      scheduled_reboot:
+                        type: object
+                        properties:
+                          enabled:
+                            type: boolean
+                            description: Whether the daily scheduled reboot is enabled
+                          hour:
+                            type: integer
+                            description: Target hour for scheduled reboot (0-23, local time)
+                          minute:
+                            type: integer
+                            description: Target minute for scheduled reboot (0-59)
       tags:
         - monitoring
   /system:
@@ -62,6 +74,18 @@ paths:
                         type: string
                         enum: [power_on, watchdog, scheduled, unknown]
                         description: Reason for the most recent reboot
+                      scheduled_reboot:
+                        type: object
+                        properties:
+                          enabled:
+                            type: boolean
+                            description: Whether the daily scheduled reboot is enabled
+                          hour:
+                            type: integer
+                            description: Target hour for scheduled reboot (0-23, local time)
+                          minute:
+                            type: integer
+                            description: Target minute for scheduled reboot (0-59)
       tags:
         - monitoring
   /sensors:
@@ -205,3 +229,73 @@ paths:
                         type: string
                         enum: [power_on, watchdog, scheduled, unknown]
                         description: Reason for the most recent reboot
+                      scheduled_reboot:
+                        type: object
+                        properties:
+                          enabled:
+                            type: boolean
+                            description: Whether the daily scheduled reboot is enabled
+                          hour:
+                            type: integer
+                            description: Target hour for scheduled reboot (0-23, local time)
+                          minute:
+                            type: integer
+                            description: Target minute for scheduled reboot (0-59)
+  /reboot:
+    post:
+      summary: Trigger a reboot
+      description: >-
+        Initiates a soft or hard reboot. The response is returned before the
+        reboot executes (the Pico becomes unreachable shortly after).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [soft, hard]
+                  default: soft
+                  description: >-
+                    soft — machine.soft_reset() (preserves reset_cause classification).
+                    hard — machine.reset() (full power-cycle, WDT-style).
+            example:
+              type: soft
+      responses:
+        '200':
+          description: Reboot initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  type:
+                    type: string
+                    enum: [soft, hard]
+              example:
+                message: Reboot initiated
+                type: soft
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              examples:
+                bad_json:
+                  summary: Invalid JSON body
+                  value:
+                    error: invalid JSON body
+                bad_type:
+                  summary: Invalid reboot type
+                  value:
+                    error: "type must be 'soft' or 'hard'"
+      tags:
+        - system

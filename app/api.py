@@ -6,7 +6,7 @@ from .state import status, setpoints, devices, get_system_info
 from .metrics import system_snapshot
 from .control import is_control_enabled, set_control_enabled, evaluate_hysteresis
 from .config_loader import save_config
-from .shutdown import reboot
+from .shutdown import reboot, soft_reboot
 from . import uptime
 
 try:
@@ -47,6 +47,21 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
         }
     app.options_handler = _options_with_cors 
 
+    def _scheduled_reboot_info():
+        """Build scheduled_reboot sub-object from cfg (config-derived, not runtime)."""
+        reboot_cfg = cfg.get("reboot", {})
+        return {
+            "enabled": reboot_cfg.get("enabled", False),
+            "hour": reboot_cfg.get("hour", 4),
+            "minute": reboot_cfg.get("minute", 0),
+        }
+
+    def _uptime_with_reboot():
+        """Return uptime info enriched with scheduled_reboot config."""
+        info = uptime.get_uptime_info()
+        info["scheduled_reboot"] = _scheduled_reboot_info()
+        return info
+
     @app.get('/ping')
     def _pin(req):
         return
@@ -54,13 +69,13 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
     @app.get('/health')
     def _health(req):
         snap = system_snapshot(wlan)
-        snap["uptime"] = uptime.get_uptime_info()
+        snap["uptime"] = _uptime_with_reboot()
         return snap
 
     @app.get('/system')
     def system_info(req):
         info = get_system_info()
-        info["uptime"] = uptime.get_uptime_info()
+        info["uptime"] = _uptime_with_reboot()
         return info
 
     @app.get('/setpoints')
@@ -201,6 +216,38 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
         return {"enabled": enabled}
 
+    @app.post('/reboot')
+    def handle_reboot(req):
+        """POST /reboot — trigger a soft or hard reboot."""
+        try:
+            body = req.json
+            reboot_type = body.get("type", "soft")
+        except Exception:
+            return {"error": "invalid JSON body"}, 400
+
+        if reboot_type not in ("soft", "hard"):
+            return {"error": "type must be 'soft' or 'hard'"}, 400
+
+        # Mark the reboot type in uptime.json sentinel so init_uptime()
+        # can classify it correctly on the next boot (reset_cause() on rp2
+        # cannot distinguish intentional reboots from WDT resets).
+        from . import uptime
+        uptime.mark_pending_reboot(reboot_type)
+
+        # Schedule a delayed reboot so the HTTP response has time to flush
+        # before the Pico becomes unreachable. 2s is enough for the TCP
+        # stack to transmit the response over WiFi.
+        async def _delayed_reboot():
+            await asyncio.sleep_ms(2000)
+            if reboot_type == "soft":
+                await soft_reboot(wlan, io, sensor, delay_ms=0)
+            else:
+                await reboot(wlan, io, sensor, delay_ms=0)
+
+        asyncio.create_task(_delayed_reboot())
+
+        return {"message": "Reboot initiated", "type": reboot_type}
+
     @app.get("/")
     def _get_all(req):
         if mode == "ap":
@@ -209,7 +256,7 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
         return {
             "system": get_system_info(),
             "health": system_snapshot(wlan),
-            "uptime": uptime.get_uptime_info(),
+            "uptime": _uptime_with_reboot(),
             "devices": devices,
             "sensors": {
                 "dht": sensor.get_latest_dht_read(),
