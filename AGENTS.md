@@ -7,9 +7,9 @@ MicroPython firmware for Raspberry Pi Pico 2W. Controls humidity and temperature
 There are no traditional build or test commands — this is plain MicroPython uploaded directly to the Pico. To deploy:
 
 - Use the **MicroPico** VSCode extension (`paulober.pico-w-go` in `.vscode/extensions.json`).
-- Upload all `.py` files, `.html` files (e.g. `app/provision.html`), `config.json`, and `VERSION` to the Pico's flash.
+- Upload all `.py` files, `.html` files (e.g. `app/provision.html`), and `config.json` to the Pico's flash.
 - Required third-party libs go in `/lib/` on the device: `microdot.py`, `urequests.py` (already vendored in the repo).
-- Bump `VERSION` on every release; it is read at runtime by `state.init_software_info_from_file()`.
+- Bump `_SOFTWARE_VERSION` in `app/state.py` on every release. It is the single source of truth for the firmware version (returned by `GET /system` and `GET /`).
 
 ## Project Structure
 
@@ -17,7 +17,6 @@ There are no traditional build or test commands — this is plain MicroPython up
 mushpi-grow/
 ├── main.py              # Entry point — wires everything together
 ├── config.json          # WiFi, hub URL, device name, control params (gitignored)
-├── VERSION              # Single-line version string (e.g. "0.1.0")
 ├── app/
 │   ├── state.py         # Shared mutable dicts (status, setpoints, devices)
 │   ├── hw.py            # IO class — GPIO init, relay control, LED heartbeat
@@ -171,6 +170,7 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 - `app/state.py` exports mutable dictionaries: `status`, `setpoints`, `devices`.
 - **Always mutate in place** — never reassign these module-level names.
 - `_system_info` is cached (built once, read many times).
+- `_SOFTWARE_VERSION` in `state.py` is the single source of truth for the firmware version. Bump it on every release.
 - **Relay-state keys must match exactly**: the keys in `status` (`fan`, `humidifier`, `heater`) must match the keys in `devices["pins"]` and the JSON field names returned by `GET /` (`outputs.fan`, etc.) and `GET /outputs`. The `IO` helper methods (`hum_on()`, `fan_on()`, `heat_on()`, etc.) are the **only** code allowed to write these keys. A typo in the key name (e.g. `status["heat"]` instead of `status["heater"]`) causes a silent desync: the GPIO pin toggles correctly but the status dict value stays stale, and the server will always poll `false`.
 - **No GPIO read-back**: relay state in the API responses comes from the cached `status` dict, not from live GPIO reads. The dict keys are the single source of truth — keep them correct.
 - **Never snapshot `status[...]` into module-level dicts at import time** — always read from `status` live inside handlers. Module-level snapshots capture initial values and never update.

@@ -71,4 +71,4 @@ Runs every `control.period_s` (default 10 s) as a `uasyncio` coroutine.
 - **RAM budget**: ~264 KB on RP2040; avoid large imports or allocations.
 - **Required libs** (upload to `/lib/`): `microdot.py`, `urequests.py`.
 - **Deploy** with the MicroPico VSCode extension.
-- **VERSION file**: bump on every release; read at runtime by `state.init_software_info_from_file()`.
+- **Software version**: bump `_SOFTWARE_VERSION` in `app/state.py` on every release. It is the single source of truth for the firmware version.

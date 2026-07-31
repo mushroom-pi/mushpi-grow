@@ -1,5 +1,10 @@
 import utime as time
 
+# ── Software version ──────────────────────────────────────────────
+# Bump on every release.  Single source of truth for the firmware
+# version (returned by GET /system and GET /).
+_SOFTWARE_VERSION = "0.5.0"
+
 # global-ish dictionaries the whole app can import
 setpoints = {"temperature": 25, "humidity": 60}
 status = {
@@ -16,20 +21,14 @@ devices = {
 _system_info = None
 software_info = None
 
-def init_software_info_from_file(cfg=None, path="VERSION"):
+def init_software_info(cfg=None):
     name = None
     if cfg: name = cfg["device_name"]
 
     global software_info
     if software_info is not None:
         return software_info
-    ver = "0.0.0"
-    try:
-        with open(path, "r") as f:
-            ver = f.read().strip()
-    except Exception:
-        pass
-    software_info = {"version": ver, "device_name": name}
+    software_info = {"version": _SOFTWARE_VERSION, "device_name": name}
     return software_info
 
 def init_system_info(cfg=None):
@@ -82,7 +81,7 @@ def init_system_info(cfg=None):
         pass
 
     _system_info = {
-        "software": init_software_info_from_file(cfg),
+        "software": init_software_info(cfg),
         "micropython": {
             "name": name,
             "version": ver_str,
