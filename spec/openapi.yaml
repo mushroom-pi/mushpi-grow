@@ -132,7 +132,7 @@ paths:
       tags:
         - setup
     post:
-      summary: Change devices setup
+      summary: Change devices setup (persists to flash — survives reboot)
       responses: {}
       tags:
         - setup
@@ -145,11 +145,15 @@ paths:
                 pins:
                   type: object
                   properties:
-                    dht:
-                      type: integer
+                    dht:        { type: integer, minimum: 1, maximum: 29 }
+                    humidifier: { type: integer, minimum: 1, maximum: 29 }
+                    fan:        { type: integer, minimum: 1, maximum: 29 }
+                    heater:     { type: integer, minimum: 1, maximum: 29 }
+                active_high:
+                  type: boolean
             example:
-              pins:
-                dht: 4
+              pins: { dht: 4, humidifier: 6, fan: 7, heater: 8 }
+              active_high: false
   /outputs:
     get:
       summary: Get outputs status

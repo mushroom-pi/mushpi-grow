@@ -13,6 +13,8 @@ _DEFAULT = {
     "control": {"period_s": 5, "hyst_hum": 5, "hyst_temp": 1},
     "reboot": {"enabled": False, "hour": 4, "minute": 0,
                "ntp_host": "pool.ntp.org", "ntp_tz_offset_hours": 0},
+    "pins": {"dht": 4, "humidifier": 6, "fan": 7, "heater": 8},
+    "active_high": False,
 }
 
 def _default_copy():
@@ -20,6 +22,7 @@ def _default_copy():
     cfg["wifi"] = _DEFAULT["wifi"].copy()
     cfg["control"] = _DEFAULT["control"].copy()
     cfg["reboot"] = _DEFAULT["reboot"].copy()
+    cfg["pins"] = _DEFAULT["pins"].copy()
     return cfg
 
 def load_config(path="config.json"):

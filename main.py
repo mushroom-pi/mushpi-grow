@@ -26,6 +26,20 @@ if errors:
         print(err)
     io.all_off()
     io.error_blink_blocking()
+
+# Apply persisted GPIO mapping / polarity over boot-time defaults.
+# io & sensor were constructed above on defaults; re-init on cfg pins.
+from app.state import devices
+_pins = cfg.get("pins", {})
+if isinstance(_pins, dict):
+    for _k in ("dht", "humidifier", "fan", "heater"):
+        if _k in _pins:
+            devices["pins"][_k] = int(_pins[_k])
+if "active_high" in cfg:
+    devices["active_high"] = bool(cfg["active_high"])
+sensor.__init__()
+io.__init__()
+
 from app.uptime import init_uptime
 init_uptime()
 state.init_system_info(cfg)

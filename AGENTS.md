@@ -45,16 +45,17 @@ mushpi-grow/
 2. `DHTReader()` — initialises DHT11 sensor.
 3. `load_config()` — reads `config.json` with shallow merge over defaults. Returns `(cfg, load_errors)` — catches malformed JSON and non-object top-level gracefully.
 4. `validate_config(cfg)` — validates all fields (device_name, api_port, hub_url, wifi, control) for type and range correctness. Accumulates all errors. If any errors (load or validation): prints them to serial, then enters terminal `error_blink_blocking()` state (3 fast blinks + pause forever). Device does NOT start WiFi, control loop, or server.
-5. `init_uptime()` — reads `uptime.json` sentinel first: if `pending_type` is set ("scheduled"/"soft"/"hard"), that's the reboot reason (preserving cumulative for scheduled/soft, resetting for hard). Falls back to `machine.reset_cause()` only when no sentinel exists (unexpected reboots: WDT → "watchdog", PWRON → "power_on"). Writes fresh `uptime.json` to flash.
-6. `state.init_system_info(cfg)` — caches board/MicroPython/build metadata.
-7. `state.check_mdns_firmware(cfg["device_name"])` — warns if firmware < v1.26.0 (mDNS won't work; see README).
-8. **Force-provision check** — reads GP0 (internal pull-up). If LOW, sets `_force_provision = True`.
-9. `connect_wifi()` — tries each candidate network (primary + `networks` list), up to `retries` per SSID; LED stays OFF until connected, then LED ON. Returns `(wlan, ip)`.
-10. **AP mode decision**: if `_force_provision` OR `ip is None`:
+5. **Apply persisted GPIO mapping** — reads `pins` and `active_high` from `cfg`, applies them to `state.devices`, then calls `sensor.__init__()` and `io.__init__()` to re-initialise GPIO on the persisted pin assignments and polarity. Runs after validation so bad persisted data can't crash re-init; the prior default-constructed `io`/`sensor` instances are briefly double-inited (harmless — relays are OFF).
+6. `init_uptime()` — reads `uptime.json` sentinel first: if `pending_type` is set ("scheduled"/"soft"/"hard"), that's the reboot reason (preserving cumulative for scheduled/soft, resetting for hard). Falls back to `machine.reset_cause()` only when no sentinel exists (unexpected reboots: WDT → "watchdog", PWRON → "power_on"). Writes fresh `uptime.json` to flash.
+7. `state.init_system_info(cfg)` — caches board/MicroPython/build metadata.
+8. `state.check_mdns_firmware(cfg["device_name"])` — warns if firmware < v1.26.0 (mDNS won't work; see README).
+9. **Force-provision check** — reads GP0 (internal pull-up). If LOW, sets `_force_provision = True`.
+10. `connect_wifi()` — tries each candidate network (primary + `networks` list), up to `retries` per SSID; LED stays OFF until connected, then LED ON. Returns `(wlan, ip)`.
+11. **AP mode decision**: if `_force_provision` OR `ip is None`:
     - `start_ap_provisioning(cfg)` — open AP at `192.168.4.1`
     - `io.start_provisioning_blink()` — slow double-blink LED pattern
     - `main()` runs only `start_server(mode="ap")` — no announce, no control loop
-11. **STA mode** (normal boot):
+12. **STA mode** (normal boot):
     - `state.attach_wlan_info(wlan, cfg)` — caches MAC, IP, hostname, port.
     - Initialises hardware WDT (`WDT(timeout=8000)` — 8-second timeout). Must be created **after** `connect_wifi()` returns (boot WiFi can take 30s+ and would trigger a spurious reboot).
     - `main()` async task:
@@ -83,7 +84,7 @@ The rp2/CYW43 mDNS responder was half-wired for years: `mdns_resp_init()` opened
 | Onboard LED      | `LED`| Status indicator                                            |
 
 - `active_high` in `config.json` flips relay polarity. The `IO` class in `app/hw.py` handles this automatically — never toggle GPIO directly.
-- Pins can be remapped at runtime via `POST /setup`.
+- Pins can be remapped at runtime via `POST /setup` and are persisted to `config.json` (`pins`, `active_high` keys), surviving reboot.
 
 ## Control Loop Logic
 
@@ -147,7 +148,9 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
   "hub_secret": "mushpi-dev-secret",
   "device_name": "pico-unit1",
   "api_port": 5000,
-  "control": { "period_s": 10, "hyst_hum": 5, "hyst_temp": 1 }
+  "control": { "period_s": 10, "hyst_hum": 5, "hyst_temp": 1 },
+  "pins": { "dht": 4, "humidifier": 6, "fan": 7, "heater": 8 },
+  "active_high": false
 }
 ```
 
@@ -156,6 +159,8 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 - `config.json` is gitignored — a checked-in copy with real credentials exists locally.
 - `config_loader.py` provides defaults for all fields (device_name: `"PicoDevice"`, period_s: `5`).
 - `networks` is optional. If present, `connect_wifi()` tries each in order; first success wins. The primary `ssid`/`password` pair is tried first.
+- `pins` is a dict mapping device roles to GPIO pin numbers (`dht`, `humidifier`, `fan`, `heater`). Each value must be an integer in 1–29 (GP0 is reserved for force-provision). Persisted by `POST /setup`; falls back to defaults if missing.
+- `active_high` is a boolean controlling relay polarity (`false` = active-low, the safe default for common relay modules). Persisted by `POST /setup`; falls back to `false` if missing.
 
 ## LED Status Indicators
 
@@ -197,4 +202,4 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
   - **No battery-backed RTC**: `time.localtime()` is garbage until NTP-synced. Any wall-clock feature must NTP-sync first (blocking, in the STA boot path — never from an async task). NTP-sync logic lives in `app/reboot_scheduler.py`.
 - **`uptime.json`** is a runtime-persisted file at flash root (like `config.json`). Created by `init_uptime()` on every boot. Schema: `{"cumulative_ms": int, "reboot_done_date": "YYYY-MM-DD"}`. Device-local only — never sent to the hub. Atomic write via `.tmp` + `os.rename`.
 - **Persist config** with `save_config(cfg)` — atomic write via `config.json.tmp` + `os.rename`. Never `open('config.json','w')` directly.
-- **`POST /provision` `wifi` key** is the only field that persists to flash. `pins`, `active_high` (via `POST /setup`), and setpoints (via `POST /setpoints`) are runtime-only (lost on reboot).
+- **`POST /provision` `wifi` key** persists to flash. **`POST /setup`** also persists `pins` and `active_high` to flash (survives reboot). Setpoints (via `POST /setpoints`) remain runtime-only (lost on reboot).

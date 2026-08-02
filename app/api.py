@@ -109,17 +109,36 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
     def _setdevices(req):
         try:
             data = req.json
+            # Apply active_high BEFORE pins so io.remap() uses correct polarity
+            if "active_high" in data:
+                devices["active_high"] = bool(data["active_high"])
             if "pins" in data:
                 pins = data["pins"]
+                if not isinstance(pins, dict):
+                    return {"error": "pins must be a dict"}, 400
+                for _k in ("dht", "humidifier", "fan", "heater"):
+                    if _k in pins:
+                        _v = pins[_k]
+                        if isinstance(_v, bool) or not isinstance(_v, int) or not (1 <= _v <= 29):
+                            return {"error": "pins." + _k + " must be int in 1..29"}, 400
                 if "dht" in pins: sensor.remap(pins)
-                if "humidifier" in pins: io.remap('humidifier', pins)
-                if "fan" in pins: io.remap('fan', pins)
-                if "heater" in pins: io.remap('heater', pins)
-            if "active_high" in data: devices["active_high"] = bool(data["active_high"])
+                if "humidifier" in pins: io.remap("humidifier", pins)
+                if "fan" in pins: io.remap("fan", pins)
+                if "heater" in pins: io.remap("heater", pins)
+
+            # Persist to flash so GPIO mapping survives reboot
+            cfg["pins"] = {k: devices["pins"][k] for k in ("dht", "humidifier", "fan", "heater")}
+            cfg["active_high"] = devices["active_high"]
+            try:
+                save_config(cfg)
+            except Exception as e:
+                print("setup: persist failed:", e)
+                return {"error": "persist failed: " + str(e), "devices": devices}, 500
+
             print("Updated devices to", devices)
             return devices
         except Exception as e:
-            return { "error": str(e) }, 400
+            return {"error": str(e)}, 400
 
     @app.post('/provision')
     def _provision(req):

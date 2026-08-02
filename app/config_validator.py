@@ -120,4 +120,22 @@ def validate_config(cfg):
             if _require_int("reboot.ntp_tz_offset_hours", tz, errors):
                 _range_check("reboot.ntp_tz_offset_hours", tz, -12, 14, errors)
 
+    # pins: optional, but if present must be dict with valid GPIO numbers
+    if "pins" in cfg:
+        pins = cfg["pins"]
+        if not isinstance(pins, dict):
+            errors.append("ERROR: pins must be a dict")
+        else:
+            for k in ("dht", "humidifier", "fan", "heater"):
+                if k in pins:
+                    v = pins[k]
+                    if _require_int("pins." + k, v, errors):
+                        _range_check("pins." + k, v, 1, 29, errors)
+
+    # active_high: optional, but if present must be bool
+    if "active_high" in cfg:
+        ah = cfg["active_high"]
+        if not isinstance(ah, bool):
+            errors.append("ERROR: active_high must be a boolean")
+
     return errors
