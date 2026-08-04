@@ -17,30 +17,34 @@ def is_control_enabled():
 def evaluate_hysteresis(cfg, io):
     """Pure actuation step — applies current setpoints against cached sensor
     readings to drive relays. Does NOT check control_enabled; the caller is
-    responsible for gating. Reads status/setpoints live (no snapshots)."""
+    responsible for gating. Reads status/setpoints live (no snapshots).
+    Purely threshold-based — no state tracking needed."""
     Hh = cfg["control"]["hyst_hum"]
     Ht = cfg["control"]["hyst_temp"]
     t = status["temperature"]
     h = status["humidity"]
+    ht = setpoints["humidity"]
+    tt = setpoints["temperature"]
 
-    # Humidity control
+    # Humidity
     if h is not None:
-        if h < setpoints["humidity"] - Hh:
+        if h <= ht:
+            # Below or at target: run humidifier to push UP
             io.hum_on()
-            io.fan_off()
-        elif h > setpoints["humidity"] + Hh:
+            io.fan_off()      # safety: mutually exclusive
+        elif h > ht + Hh:
+            # Significantly above target: run fan to push DOWN
             io.fan_on()
-            io.hum_off()
+            io.hum_off()      # safety: mutually exclusive
         else:
+            # ht < h <= ht + Hh: deadband — neither runs
             io.hum_off()
             io.fan_off()
 
-    # Temperature control
+    # Temperature — heater (adds heat), no cooler counterpart
     if t is not None:
-        if t < setpoints["temperature"] - Ht:
+        if t <= tt:
             io.heat_on()
-        elif t > setpoints["temperature"] + Ht:
-            io.heat_off()
         else:
             io.heat_off()
 

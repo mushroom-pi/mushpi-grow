@@ -90,8 +90,11 @@ The rp2/CYW43 mDNS responder was half-wired for years: `mdns_resp_init()` opened
 
 Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in copilot instructions, 30 s in the checked-in `config.json`, default 5 s in `config_loader.py`).
 
-- **Humidity**: below `setpoint + hyst_hum` → humidifier ON, fan OFF. At or above `setpoint + hyst_hum` → fan ON, humidifier OFF.
-- **Temperature**: below `setpoint + hyst_temp` → heater ON. At or above `setpoint + hyst_temp` → heater OFF.
+- **Humidifier**: ON when `humidity <= target` (stays ON until humidity exceeds target).
+- **Fan**: ON when `humidity > target + hyst_hum` (stays ON until humidity drops to `<= target + hyst_hum`).
+- **Deadband**: between `target` and `target + hyst_hum` neither humidifier nor fan runs — prevents fighting between the two actuators.
+- **Heater**: ON when `temperature <= target` (stays ON until temperature exceeds target).
+- Humidifier and fan are **mutually exclusive** — each branch calls the other's `off()` helper as a safety measure.
 - When `control_enabled = False`: keeps sampling the DHT11 every `control.period_s`, calls `relays_off()` once (relays only — LED heartbeat continues), and skips hysteresis actuation until re-enabled. Sampling is decoupled from actuation so `GET /`, `/sensors`, and `/health` keep returning fresh readings.
 
 **Key design rule**: sensor sampling must remain independent of `control_enabled` (observability vs. actuation separation). `io.all_off()` is for fail-safe/shutdown only; use `io.relays_off()` for control-disabled state.
