@@ -90,12 +90,14 @@ The rp2/CYW43 mDNS responder was half-wired for years: `mdns_resp_init()` opened
 
 Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in copilot instructions, 30 s in the checked-in `config.json`, default 5 s in `config_loader.py`).
 
-- **Humidifier**: ON when `humidity <= target` (stays ON until humidity exceeds target).
-- **Fan**: ON when `humidity > target + hyst_hum` (stays ON until humidity drops to `<= target + hyst_hum`).
-- **Deadband**: between `target` and `target + hyst_hum` neither humidifier nor fan runs — prevents fighting between the two actuators.
-- **Heater**: ON when `temperature <= target` (stays ON until temperature exceeds target).
-- Humidifier and fan are **mutually exclusive** — each branch calls the other's `off()` helper as a safety measure.
-- When `control_enabled = False`: keeps sampling the DHT11 every `control.period_s`, calls `relays_off()` once (relays only — LED heartbeat continues), and skips hysteresis actuation until re-enabled. Sampling is decoupled from actuation so `GET /`, `/sensors`, and `/health` keep returning fresh readings.
+- **Humidifier**: ON when `humidity <= target − humidity_deadband` (asymmetric low-side deadband). Stays ON until humidity rises above the deadband threshold.
+- **Fan**: ON when `humidity > target + hyst_hum` (high-side deadband). Stays ON until humidity drops to `<= target + hyst_hum`.
+- **Deadband**: between `target − humidity_deadband` and `target + hyst_hum` neither humidifier nor fan runs — prevents fighting between the two actuators. The deadband is asymmetric: the low-side gap (`humidity_deadband`, default 3) and high-side gap (`hyst_hum`, default 5) are independently configurable.
+- **Heater**: ON when `temperature <= target − temperature_deadband` (asymmetric low-side deadband, default 1).
+- **Minimum runtime**: once a relay turns ON, it stays ON for at least `min_runtime` seconds (default 30) before it can be turned off. Tracked per-relay via `_on_since` timestamps (ticks_ms). This prevents rapid cycling of relays when readings hover near deadband boundaries.
+- Humidifier and fan are **mutually exclusive** — each branch calls the other's `_turn_off()` helper as a safety measure.
+- When `control_enabled = False`: keeps sampling the DHT11 every `control.period_s`, calls `relays_off()` once (relays only — LED heartbeat continues), resets `_on_since` tracking, and skips hysteresis actuation until re-enabled. Sampling is decoupled from actuation so `GET /`, `/sensors`, and `/health` keep returning fresh readings.
+- API handlers (`POST /outputs`, `POST /control`) also update `_on_since` so min-runtime tracking stays consistent when relays are driven outside the control loop.
 
 **Key design rule**: sensor sampling must remain independent of `control_enabled` (observability vs. actuation separation). `io.all_off()` is for fail-safe/shutdown only; use `io.relays_off()` for control-disabled state.
 
@@ -151,7 +153,7 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
   "hub_secret": "mushpi-dev-secret",
   "device_name": "pico-unit1",
   "api_port": 5000,
-  "control": { "period_s": 10, "hyst_hum": 5, "hyst_temp": 1 },
+  "control": { "period_s": 10, "hyst_hum": 5, "hyst_temp": 1, "humidity_deadband": 3, "temperature_deadband": 1, "min_runtime": 30 },
   "pins": { "dht": 4, "humidifier": 6, "fan": 7, "heater": 8 },
   "active_high": false
 }

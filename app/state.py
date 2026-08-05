@@ -3,7 +3,7 @@ import utime as time
 # ── Software version ──────────────────────────────────────────────
 # Bump on every release.  Single source of truth for the firmware
 # version (returned by GET /system and GET /).
-_SOFTWARE_VERSION = "0.7.0"
+_SOFTWARE_VERSION = "0.8.0"
 
 # global-ish dictionaries the whole app can import
 setpoints = {"temperature": 25, "humidity": 60}

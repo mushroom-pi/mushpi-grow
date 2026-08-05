@@ -93,6 +93,18 @@ def validate_config(cfg):
         if _require_int("control.hyst_temp", ht, errors):
             _range_check("control.hyst_temp", ht, 0, 50, errors)
 
+        hd = ctrl.get("humidity_deadband")
+        if _require_int("control.humidity_deadband", hd, errors):
+            _range_check("control.humidity_deadband", hd, 0, 50, errors)
+
+        td = ctrl.get("temperature_deadband")
+        if _require_int("control.temperature_deadband", td, errors):
+            _range_check("control.temperature_deadband", td, 0, 20, errors)
+
+        mr = ctrl.get("min_runtime")
+        if _require_int("control.min_runtime", mr, errors):
+            _range_check("control.min_runtime", mr, 0, 3600, errors)
+
     # reboot: optional, but if present must be dict with valid fields
     if "reboot" in cfg:
         rb = cfg["reboot"]

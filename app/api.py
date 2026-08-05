@@ -4,7 +4,7 @@ from microdot import Microdot, Response
 
 from .state import status, setpoints, devices, get_system_info
 from .metrics import system_snapshot
-from .control import is_control_enabled, set_control_enabled, evaluate_hysteresis
+from .control import is_control_enabled, set_control_enabled, evaluate_hysteresis, reset_on_since, mark_relay_off, mark_relay_on
 from .config_loader import save_config
 from .shutdown import reboot, soft_reboot
 from . import uptime
@@ -205,8 +205,14 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
             humidifier = bool(data["humidifier"])
             heater = bool(data["heater"])
             io.write(io.hum, humidifier); status["humidifier"] = humidifier
+            if humidifier: mark_relay_on("humidifier")
+            else: mark_relay_off("humidifier")
             io.write(io.fan, fan); status["fan"] = fan
+            if fan: mark_relay_on("fan")
+            else: mark_relay_off("fan")
             io.write(io.heat, heater); status["heater"] = heater
+            if heater: mark_relay_on("heater")
+            else: mark_relay_off("heater")
 
             return { "ok": True, "fan": fan, "humidifier": humidifier, "heater": heater }
         except Exception as e:
@@ -232,6 +238,7 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
         if not enabled and hasattr(io, "relays_off"):
             try: io.relays_off()
             except: pass
+            reset_on_since()
 
         return {"enabled": enabled}
 

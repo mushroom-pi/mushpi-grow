@@ -1,6 +1,10 @@
 import uasyncio as asyncio
+import utime as time
 
 from .state import status, setpoints
+
+# Per-relay "time switched ON" in ticks_ms; None = not currently ON-or-in-runtime-window
+_on_since = {"humidifier": None, "fan": None, "heater": None}
 
 control_enabled_event = asyncio.Event()
 control_enabled_event.set()
@@ -14,39 +18,76 @@ def set_control_enabled(enabled: bool):
 def is_control_enabled():
     return control_enabled_event.is_set()
 
+def _can_turn_off(relay, min_runtime_ms):
+    since = _on_since[relay]
+    if since is None:
+        return True
+    elapsed_ms = time.ticks_diff(time.ticks_ms(), since)
+    return elapsed_ms >= min_runtime_ms
+
+def _turn_on(io, relay):
+    if relay == "humidifier": io.hum_on()
+    elif relay == "fan": io.fan_on()
+    elif relay == "heater": io.heat_on()
+    _on_since[relay] = time.ticks_ms()
+
+def _turn_off(io, relay, min_runtime_ms):
+    if not _can_turn_off(relay, min_runtime_ms):
+        return
+    if relay == "humidifier": io.hum_off()
+    elif relay == "fan": io.fan_off()
+    elif relay == "heater": io.heat_off()
+    _on_since[relay] = None
+
+def reset_on_since():
+    for relay in _on_since:
+        _on_since[relay] = None
+
+def mark_relay_off(relay):
+    _on_since[relay] = None
+
+def mark_relay_on(relay):
+    _on_since[relay] = time.ticks_ms()
+
 def evaluate_hysteresis(cfg, io):
-    """Pure actuation step — applies current setpoints against cached sensor
-    readings to drive relays. Does NOT check control_enabled; the caller is
-    responsible for gating. Reads status/setpoints live (no snapshots).
-    Purely threshold-based — no state tracking needed."""
+    """Actuation step with asymmetric deadband and minimum runtime gate.
+    Humidifier ON at h <= target - humidity_deadband (low-side).
+    Fan ON at h > target + hyst_hum (high-side).
+    Heater ON at t <= target - temperature_deadband.
+    Relays stay ON for at least min_runtime seconds before they can turn off.
+    Does NOT check control_enabled; the caller is responsible for gating.
+    Reads status/setpoints live (no snapshots)."""
     Hh = cfg["control"]["hyst_hum"]
-    Ht = cfg["control"]["hyst_temp"]
+    Hd = cfg["control"]["humidity_deadband"]
+    Td = cfg["control"]["temperature_deadband"]
+    Mr = cfg["control"]["min_runtime"] * 1000
+
     t = status["temperature"]
     h = status["humidity"]
     ht = setpoints["humidity"]
     tt = setpoints["temperature"]
 
-    # Humidity
+    # Humidity control — humidifier and fan are mutually exclusive
     if h is not None:
-        if h <= ht:
-            # Below or at target: run humidifier to push UP
-            io.hum_on()
-            io.fan_off()      # safety: mutually exclusive
+        if h <= ht - Hd:
+            # Below low-side deadband: run humidifier to push UP
+            _turn_on(io, "humidifier")
+            _turn_off(io, "fan", Mr)
         elif h > ht + Hh:
-            # Significantly above target: run fan to push DOWN
-            io.fan_on()
-            io.hum_off()      # safety: mutually exclusive
+            # Above high-side deadband: run fan to push DOWN
+            _turn_on(io, "fan")
+            _turn_off(io, "humidifier", Mr)
         else:
-            # ht < h <= ht + Hh: deadband — neither runs
-            io.hum_off()
-            io.fan_off()
+            # Inside deadband — neither runs (gated by min_runtime)
+            _turn_off(io, "humidifier", Mr)
+            _turn_off(io, "fan", Mr)
 
     # Temperature — heater (adds heat), no cooler counterpart
     if t is not None:
-        if t <= tt:
-            io.heat_on()
+        if t <= tt - Td:
+            _turn_on(io, "heater")
         else:
-            io.heat_off()
+            _turn_off(io, "heater", Mr)
 
 async def control_loop(cfg, wlan, io, sensor, stop_event=None, wdt=None):
     P = cfg["control"]["period_s"]
@@ -67,6 +108,7 @@ async def control_loop(cfg, wlan, io, sensor, stop_event=None, wdt=None):
             if not relays_latched:
                 try:
                     io.relays_off()
+                    reset_on_since()
                     relays_latched = True
                 except:
                     pass
