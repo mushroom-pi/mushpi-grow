@@ -1,3 +1,4 @@
+import gc
 import uasyncio as asyncio
 
 from microdot import Microdot, Response
@@ -26,6 +27,10 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
         res.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, OPTIONS'
         res.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         res.headers['Access-Control-Max-Age'] = '600'
+        try:
+            gc.collect()
+        except:
+            pass
         return res
 
     # Override OPTIONS handler to include CORS headers
@@ -100,7 +105,7 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
             return setpoints
         except Exception as e:
-            return { "error": str(e)}, 400
+            return { "ok": False, "error": str(e)}, 400
 
     @app.get('/setup')
     def _getdevices(req): return devices
@@ -115,12 +120,12 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
             if "pins" in data:
                 pins = data["pins"]
                 if not isinstance(pins, dict):
-                    return {"error": "pins must be a dict"}, 400
+                    return {"ok": False, "error": "pins must be a dict"}, 400
                 for _k in ("dht", "humidifier", "fan", "heater"):
                     if _k in pins:
                         _v = pins[_k]
                         if isinstance(_v, bool) or not isinstance(_v, int) or not (1 <= _v <= 29):
-                            return {"error": "pins." + _k + " must be int in 1..29"}, 400
+                            return {"ok": False, "error": "pins." + _k + " must be int in 1..29"}, 400
                 if "dht" in pins: sensor.remap(pins)
                 if "humidifier" in pins: io.remap("humidifier", pins)
                 if "fan" in pins: io.remap("fan", pins)
@@ -133,12 +138,12 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
                 save_config(cfg)
             except Exception as e:
                 print("setup: persist failed:", e)
-                return {"error": "persist failed: " + str(e), "devices": devices}, 500
+                return {"ok": False, "error": "persist failed: " + str(e), "devices": devices}, 500
 
             print("Updated devices to", devices)
             return devices
         except Exception as e:
-            return {"error": str(e)}, 400
+            return {"ok": False, "error": str(e)}, 400
 
     @app.post('/provision')
     def _provision(req):
@@ -146,10 +151,10 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
             data = req.json
             wifi_data = data.get("wifi") if isinstance(data, dict) else None
             if not isinstance(wifi_data, dict):
-                return {"error": "wifi object is required"}, 400
+                return {"ok": False, "error": "wifi object is required"}, 400
             ssid = wifi_data.get("ssid", "")
             if not ssid or not isinstance(ssid, str):
-                return {"error": "wifi.ssid is required"}, 400
+                return {"ok": False, "error": "wifi.ssid is required"}, 400
             cfg["wifi"]["ssid"] = ssid
             if "password" in wifi_data:
                 cfg["wifi"]["password"] = wifi_data["password"]
@@ -158,12 +163,12 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
             try:
                 save_config(cfg)
             except Exception as e:
-                return {"error": str(e)}, 400
+                return {"ok": False, "error": str(e)}, 400
             print("WiFi credentials saved, rebooting in 2s...")
             asyncio.create_task(reboot(wlan=None, io=io, sensor=sensor, delay_ms=2000))
             return {"ok": True, "wifi": {"ssid": cfg["wifi"]["ssid"]}}
         except Exception as e:
-            return {"error": str(e)}, 400
+            return {"ok": False, "error": str(e)}, 400
 
     @app.get('/sensors')
     def _status(req):
@@ -173,9 +178,9 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
               If you want an on-demand fresh read, call with ?force=1
         """
         try:
-            # Optional fresh read: /status?force=1
+            # Optional fresh read: /sensors?force=1
             if req.args.get('force'):
-                sensor.d.measure()
+                sensor.read()
 
             return sensor.get_latest_dht_read()
         except Exception as e:
@@ -194,27 +199,28 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
     def _setoutputs(req):
         try:
             data = req.json or {}
-            if "humidifier" not in data:
-                return ({ "ok": False, "error": 'the body needs to include "humidifier" status (true/false)' }, 422)
-            if "fan" not in data:
-                return ({ "ok": False, "error": 'the body needs to include "fan" status (true/false)' }, 422)
-            if "heater" not in data:
-                return ({ "ok": False, "error": 'the body needs to include "heater" status (true/false)' }, 422)
+            valid_keys = ("humidifier", "fan", "heater")
+            provided = {k: data[k] for k in valid_keys if k in data}
+            if not provided:
+                return ({ "ok": False, "error": 'the body must include at least one of: "humidifier", "fan", "heater"' }, 422)
 
-            fan = bool(data["fan"])
-            humidifier = bool(data["humidifier"])
-            heater = bool(data["heater"])
-            io.write(io.hum, humidifier); status["humidifier"] = humidifier
-            if humidifier: mark_relay_on("humidifier")
-            else: mark_relay_off("humidifier")
-            io.write(io.fan, fan); status["fan"] = fan
-            if fan: mark_relay_on("fan")
-            else: mark_relay_off("fan")
-            io.write(io.heat, heater); status["heater"] = heater
-            if heater: mark_relay_on("heater")
-            else: mark_relay_off("heater")
+            if "humidifier" in provided:
+                humidifier = bool(provided["humidifier"])
+                io.write(io.hum, humidifier); status["humidifier"] = humidifier
+                if humidifier: mark_relay_on("humidifier")
+                else: mark_relay_off("humidifier")
+            if "fan" in provided:
+                fan = bool(provided["fan"])
+                io.write(io.fan, fan); status["fan"] = fan
+                if fan: mark_relay_on("fan")
+                else: mark_relay_off("fan")
+            if "heater" in provided:
+                heater = bool(provided["heater"])
+                io.write(io.heat, heater); status["heater"] = heater
+                if heater: mark_relay_on("heater")
+                else: mark_relay_off("heater")
 
-            return { "ok": True, "fan": fan, "humidifier": humidifier, "heater": heater }
+            return { "ok": True, "fan": status["fan"], "humidifier": status["humidifier"], "heater": status["heater"] }
         except Exception as e:
             return { "ok": False, "error": str(e) }, 400
 
@@ -229,7 +235,7 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
         except Exception:
             body = {}
         if "enabled" not in body or not isinstance(body["enabled"], bool):
-            return ({"error": 'send {"enabled": true|false}'}, 422)
+            return ({"ok": False, "error": 'send {"enabled": true|false}'}, 422)
 
         enabled = body["enabled"]
         set_control_enabled(enabled)
@@ -249,10 +255,10 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
             body = req.json
             reboot_type = body.get("type", "soft")
         except Exception:
-            return {"error": "invalid JSON body"}, 400
+            return {"ok": False, "error": "invalid JSON body"}, 400
 
         if reboot_type not in ("soft", "hard"):
-            return {"error": "type must be 'soft' or 'hard'"}, 400
+            return {"ok": False, "error": "type must be 'soft' or 'hard'"}, 400
 
         # Mark the reboot type in uptime.json sentinel so init_uptime()
         # can classify it correctly on the next boot (reset_cause() on rp2

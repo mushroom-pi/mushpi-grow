@@ -88,7 +88,7 @@ The rp2/CYW43 mDNS responder was half-wired for years: `mdns_resp_init()` opened
 
 ## Control Loop Logic
 
-Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in copilot instructions, 30 s in the checked-in `config.json`, default 5 s in `config_loader.py`).
+Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in `config_loader.py`; matches the checked-in `config.json`).
 
 - **Humidifier**: ON when `humidity <= target − humidity_deadband` (asymmetric low-side deadband). Stays ON until humidity rises above the deadband threshold.
 - **Fan**: ON when `humidity > target + hyst_hum` (high-side deadband). Stays ON until humidity drops to `<= target + hyst_hum`.
@@ -109,9 +109,9 @@ Runs as a `uasyncio` coroutine every `control.period_s` seconds (default 10 s in
 | GET        | `/ping`     | Liveness (empty 200)                                   |
 | GET        | `/health`   | RAM, FS, Wi‑Fi RSSI, MCU temp, uptime, loop util %     |
 | GET        | `/system`   | Board, MicroPython version, software version, Wi‑Fi IP/MAC |
-| GET / POST | `/sensors`  | DHT reading; `?force=1` triggers on-demand measurement |
+| GET        | `/sensors`  | DHT reading; `?force=1` triggers on-demand measurement (via `sensor.read()`, not raw `sensor.d.measure()`) |
 | GET / POST | `/setpoints`| `{"temperature": int, "humidity": int}` — triggers immediate hysteresis re-evaluation when control is enabled |
-| GET / POST | `/outputs`  | `{"fan": bool, "humidifier": bool, "heater": bool}`     |
+| GET / POST | `/outputs`  | `{"fan"?: bool, "humidifier"?: bool, "heater"?: bool}` — POST accepts partial updates (at least one key required); GET returns all three current states |
 | GET / POST | `/control`  | `{"enabled": bool}` — disables control immediately (calls `relays_off()` sync) |
 | GET / POST | `/setup`    | GPIO pin mapping + `active_high`                          |
 | POST       | `/provision`| Wi-Fi credential provisioning (AP mode only — writes config.json + reboots) |
@@ -162,7 +162,7 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 - `device_name` must match the `handle` field in `mushpi-server`'s `PicoUnit` entity.
 - `hub_secret` must match the server's `PICO_ANNOUNCE_SECRET` env var. Sent as `X-Pico-Secret` header on every announcement POST.
 - `config.json` is gitignored — a checked-in copy with real credentials exists locally.
-- `config_loader.py` provides defaults for all fields (device_name: `"PicoDevice"`, period_s: `5`).
+- `config_loader.py` provides defaults for all fields (device_name: `"PicoDevice"`, period_s: `10`).
 - `networks` is optional. If present, `connect_wifi()` tries each in order; first success wins. The primary `ssid`/`password` pair is tried first.
 - `pins` is a dict mapping device roles to GPIO pin numbers (`dht`, `humidifier`, `fan`, `heater`). Each value must be an integer in 1–29 (GP0 is reserved for force-provision). Persisted by `POST /setup`; falls back to defaults if missing.
 - `active_high` is a boolean controlling relay polarity (`false` = active-low, the safe default for common relay modules). Persisted by `POST /setup`; falls back to `false` if missing.
@@ -193,10 +193,14 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 - **Module ownership**: `app/wifi.py` owns all WiFi state transitions (connect, reconnect, link monitoring). `app/control.py` owns sensor sampling + hysteresis only. No cross-module WiFi logic in control.py.
 - **WDT (Watchdog Timer)**: STA mode only (not AP provisioning). Initialised **after** `connect_wifi()` returns (boot WiFi can take 30s+ and would trigger a spurious reboot). Fed from `control_loop`'s 200ms chunked-sleep loop — covers event-loop-wide blocking hangs and control_loop task death. Not fed from an independent task (would miss control_loop death).
 - **`announce_then_retry_once` is re-entrant**: it is safe to call at runtime (not just boot). The caller must cancel any prior announce task before spawning a new one to avoid overlapping heartbeat/LED control.
-- **HTTP handlers must not perform blocking sensor reads** (e.g. `sensor.d.measure()`) — use the last cached `status` values from `app/state.py` instead. The one exception is `GET /sensors?force=1`, which triggers an on-demand measurement intentionally.
+- **HTTP handlers must not perform blocking sensor reads** (e.g. `sensor.d.measure()`) — use the last cached `status` values from `app/state.py` instead. The one exception is `GET /sensors?force=1`, which triggers an on-demand measurement via `sensor.read()` (the full method: `measure()` → `plausible()` check → status update).
+- **Garbage sensor readings must never leak into `status`**: `DHTReader.read()` writes `status["temperature"]` and `status["humidity"]` ONLY after `plausible()` returns `True`. Implausible readings set `last_sensor_error` but leave the last plausible values in place. This ensures the control loop's `None` guards correctly suppress actuation during sensor faults.
+- **All POST handler error responses use the shape `{"ok": False, "error": "..."}`**. Do not mix flat `{"error": "..."}` with `{"ok": False, ...}` — standardise on `{"ok": False, "error": "..."}` for consistency across `/setpoints`, `/outputs`, `/control`, `/setup`, `/provision`, and `/reboot`.
+- **`POST /outputs` accepts partial updates**: individual relay keys (`fan`, `humidifier`, `heater`) are optional — only keys present in the request body are applied. At least one key must be provided. The response always returns all three current relay states.
+- **`reboot_reason` enum**: the valid values produced by `app/uptime.py` are `scheduled`, `soft`, `hard`, `watchdog`, `power_on`, `unknown`. Document these in the `uptime` response schemas and keep `spec/openapi.yaml` in sync.
 - **All I/O is async** — use `asyncio.create_task()` for background work.
 - **Error handling**: bare `except:` is acceptable; always log errors with `print()`.
-- **RAM budget**: ~264 KB on RP2040; avoid large imports, f-strings, or unnecessary allocations.
+- **RAM budget**: ~264 KB on RP2040; avoid large imports, f-strings, or unnecessary allocations. Call `gc.collect()` at the control-loop iteration boundary (after `evaluate_hysteresis()`, before the chunked-sleep loop) and in the HTTP `after_request` hook (`_cors()`). Per-call overhead is ~1–3ms — acceptable on a 10s+ loop and infrequent HTTP requests. This prevents heap fragmentation from accumulating over weeks of uptime.
 - **Required libs** (upload to `/lib/` on the Pico): `microdot.py`, `urequests.py`.
 - **Graceful shutdown**: use `stop_event` from `app/shutdown.py` — loops should check it and exit cleanly. The `finally` block in `main.py` calls `graceful_shutdown()` which turns all outputs off, disconnects WiFi, and deinits the sensor.
 - **MicroPython quirks**:

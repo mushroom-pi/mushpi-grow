@@ -25,21 +25,24 @@ class DHTReader:
         }
 
     def read(self):
+        ok = False
         try:
             self.d.measure()
             t = self.d.temperature()
             h = self.d.humidity()
             print("Temperature: ", t)  # Print temperature
             print("Humidity: ", h)  # Print humidity
-            status["temperature"] = t
-            status["humidity"] = h
             if self.plausible(t, h):
+                status["temperature"] = t
+                status["humidity"] = h
                 status["last_sensor_ok_at"] = time.time()
                 status["last_sensor_error"] = None
+                ok = True
             else:
                 status["last_sensor_error"] = "implausible_reading"
         except Exception as e:
             status["last_sensor_error"] = str(e)
+        return ok
 
     def remap(self, pins):
         devices["pins"]["dht"] = int(pins["dht"])

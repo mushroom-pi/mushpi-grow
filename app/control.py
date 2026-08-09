@@ -1,3 +1,4 @@
+import gc
 import uasyncio as asyncio
 import utime as time
 
@@ -116,6 +117,12 @@ async def control_loop(cfg, wlan, io, sensor, stop_event=None, wdt=None):
             # Control enabled: reset latch and run hysteresis actuation.
             relays_latched = False
             evaluate_hysteresis(cfg, io)
+
+        # Reclaim fragmented heap before sleeping (prevents OOM on long runs)
+        try:
+            gc.collect()
+        except:
+            pass
 
         # Sleep in small chunks for responsive shutdown
         chunks = (P * 1000) // 200

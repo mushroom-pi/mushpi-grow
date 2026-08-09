@@ -18,17 +18,8 @@ async def graceful_shutdown(wlan=None, io=None, sensor=None):
     try:
         if io and hasattr(io, "all_off"):
             io.all_off()
-        elif io and hasattr(io, "safe_off"):
-            io.safe_off()
     except Exception as e:
         print("io cleanup error:", e)
-
-    # Deinit sensor if it supports it
-    try:
-        if sensor and hasattr(sensor, "deinit"):
-            sensor.deinit()
-    except Exception as e:
-        print("sensor cleanup error:", e)
 
     # Bring Wi-Fi down to save power and close sockets
     try:

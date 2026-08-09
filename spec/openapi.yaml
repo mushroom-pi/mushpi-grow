@@ -1,15 +1,23 @@
 openapi: 3.0.0
 info:
   title: Pico Unit API
-  version: 0.4.0
-  description: 'The contract served by any pico unit succesfully connected to a Wifi and running this software'
+  version: 0.8.2
+  description: >-
+    REST API served by every MushPi Pico growing unit on port 5000.
+    In STA mode all endpoints return JSON. In AP provisioning mode
+    (open network, 192.168.4.1) GET / returns an HTML setup form
+    (text/html) instead of JSON; POST /provision accepts Wi-Fi
+    credentials, writes config.json, and reboots the unit into STA mode.
 servers:
   - url: '{{baseUrl}}'
 paths:
   /ping:
     get:
       summary: PING
-      responses: {}
+      description: Liveness probe — returns an empty 200 with no body.
+      responses:
+        '200':
+          description: OK (empty body)
       tags:
         - monitoring
   /health:
@@ -23,6 +31,59 @@ paths:
               schema:
                 type: object
                 properties:
+                  mem:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        description: Total heap in bytes
+                      used:
+                        type: integer
+                        description: Allocated heap in bytes
+                      free:
+                        type: integer
+                        description: Free heap in bytes
+                      used_pct:
+                        type: integer
+                        nullable: true
+                        description: Percentage of heap in use (0–100), null if total is 0
+                  fs:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        description: Total filesystem size in bytes
+                      used:
+                        type: integer
+                        description: Used filesystem space in bytes
+                      free:
+                        type: integer
+                        description: Free filesystem space in bytes
+                      used_pct:
+                        type: integer
+                        nullable: true
+                        description: Percentage of filesystem in use (0–100), null if total is 0
+                  wifi:
+                    type: object
+                    properties:
+                      connected:
+                        type: boolean
+                        description: Whether Wi-Fi is currently connected
+                      rssi:
+                        type: integer
+                        nullable: true
+                        description: Wi-Fi signal strength in dBm (negative), null if unavailable
+                  mcu_temp_c:
+                    type: number
+                    nullable: true
+                    description: Internal MCU temperature in °C (rough, uncalibrated), null if unavailable
+                  event_loop_util_pct:
+                    type: integer
+                    nullable: true
+                    description: Event-loop utilisation 0–100, null until first measurement window elapses
+                  uptime_s:
+                    type: integer
+                    description: Cumulative uptime in seconds (preserved across scheduled reboots)
                   uptime:
                     type: object
                     properties:
@@ -34,7 +95,7 @@ paths:
                         description: Current session uptime (seconds)
                       reboot_reason:
                         type: string
-                        enum: [power_on, watchdog, scheduled, unknown]
+                        enum: [scheduled, soft, hard, watchdog, power_on, unknown]
                         description: Reason for the most recent reboot
                       scheduled_reboot:
                         type: object
@@ -61,6 +122,80 @@ paths:
               schema:
                 type: object
                 properties:
+                  software:
+                    type: object
+                    properties:
+                      version:
+                        type: string
+                        description: Firmware version (e.g. "0.8.2")
+                      device_name:
+                        type: string
+                        nullable: true
+                        description: Device name from config.json (matches hub handle)
+                  micropython:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        description: Implementation name (e.g. "micropython")
+                      version:
+                        type: string
+                        nullable: true
+                        description: Dotted version string (e.g. "1.26.0")
+                      version_tuple:
+                        type: array
+                        nullable: true
+                        items:
+                          type: integer
+                        description: Version as tuple of integers
+                      mpy:
+                        type: integer
+                        nullable: true
+                        description: .mpy file format version tag
+                      build:
+                        type: string
+                        description: Firmware build string (os.uname().version or sys.version)
+                  hardware:
+                    type: object
+                    properties:
+                      platform:
+                        type: string
+                        nullable: true
+                        description: sys.platform (e.g. "rp2")
+                      board:
+                        type: string
+                        nullable: true
+                        description: Board description (e.g. "Raspberry Pi Pico W with RP2040")
+                      port:
+                        type: string
+                        nullable: true
+                        description: MicroPython port name (e.g. "rp2")
+                      cpu:
+                        type: object
+                        properties:
+                          freq_mhz:
+                            type: integer
+                            nullable: true
+                            description: CPU clock frequency in MHz
+                  wifi:
+                    type: object
+                    properties:
+                      mac:
+                        type: string
+                        nullable: true
+                        description: Wi-Fi MAC address (colon-separated hex)
+                      ip:
+                        type: string
+                        nullable: true
+                        description: Wi-Fi IP address
+                      port:
+                        type: integer
+                        nullable: true
+                        description: API port from config.json
+                      hostname:
+                        type: string
+                        nullable: true
+                        description: DHCP/hostname name
                   uptime:
                     type: object
                     properties:
@@ -72,7 +207,7 @@ paths:
                         description: Current session uptime (seconds)
                       reboot_reason:
                         type: string
-                        enum: [power_on, watchdog, scheduled, unknown]
+                        enum: [scheduled, soft, hard, watchdog, power_on, unknown]
                         description: Reason for the most recent reboot
                       scheduled_reboot:
                         type: object
@@ -91,28 +226,108 @@ paths:
   /sensors:
     get:
       summary: Readings
+      description: >-
+        Returns the latest cached DHT11 reading. Pass ?force=1 to trigger
+        an on-demand measurement before returning.
       parameters:
         - name: force
           in: query
           required: false
-          deprecated: false
-          schema: {}
+          schema:
+            type: integer
+            enum: [0, 1]
           example: '1'
-      responses: {}
+          description: Set to 1 to force a fresh sensor read
+      responses:
+        '200':
+          description: Latest DHT reading
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sensor_ok:
+                    type: boolean
+                    description: Whether the last sensor read succeeded
+                  temperature:
+                    type: integer
+                    nullable: true
+                    description: Temperature in °C, null if sensor failed
+                  humidity:
+                    type: integer
+                    nullable: true
+                    description: Relative humidity %, null if sensor failed
+                  last_ok_age_s:
+                    type: integer
+                    nullable: true
+                    description: Seconds since last successful read, null if never succeeded
+                  last_error:
+                    type: string
+                    nullable: true
+                    description: Error message from last failed read, null if no error
+        '500':
+          description: Sensor read failed (only when force=1 triggers a failure)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [false]
+                  error:
+                    type: string
       tags:
         - sensors
   /setpoints:
     get:
-      summary: Get settings
-      responses: {}
+      summary: Get setpoints
+      responses:
+        '200':
+          description: Current setpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  temperature:
+                    type: integer
+                    description: Target temperature in °C
+                  humidity:
+                    type: integer
+                    description: Target relative humidity %
       tags:
         - setpoints
     post:
-      summary: Change settings
-      responses: {}
+      summary: Change setpoints
+      description: >-
+        Updates one or both setpoints. Triggers immediate hysteresis
+        re-evaluation when the control loop is enabled.
+      responses:
+        '200':
+          description: Updated setpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  temperature:
+                    type: integer
+                  humidity:
+                    type: integer
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
       tags:
         - setpoints
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -123,20 +338,82 @@ paths:
                 humidity:
                   type: integer
             example:
-              temperature: ''
-              humidity: ''
+              temperature: 25
+              humidity: 80
   /setup:
     get:
       summary: Get devices characteristics
-      responses: {}
+      responses:
+        '200':
+          description: Current GPIO pin mapping and polarity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pins:
+                    type: object
+                    properties:
+                      dht:
+                        type: integer
+                      humidifier:
+                        type: integer
+                      fan:
+                        type: integer
+                      heater:
+                        type: integer
+                  active_high:
+                    type: boolean
       tags:
         - setup
     post:
       summary: Change devices setup (persists to flash — survives reboot)
-      responses: {}
+      responses:
+        '200':
+          description: Updated devices configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pins:
+                    type: object
+                    properties:
+                      dht:
+                        type: integer
+                      humidifier:
+                        type: integer
+                      fan:
+                        type: integer
+                      heater:
+                        type: integer
+                  active_high:
+                    type: boolean
+        '400':
+          description: Invalid request body (bad pin values, non-dict pins, etc.)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        '500':
+          description: Config persist to flash failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  devices:
+                    type: object
+                    description: Current (unchanged) devices state
       tags:
         - setup
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -157,15 +434,80 @@ paths:
   /outputs:
     get:
       summary: Get outputs status
-      responses: {}
+      responses:
+        '200':
+          description: Current relay states
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fan:
+                    type: boolean
+                  humidifier:
+                    type: boolean
+                  heater:
+                    type: boolean
       tags:
         - outputs
     post:
       summary: Change outputs status
-      responses: {}
+      description: >-
+        Directly drive relays. Individual keys are optional — only the
+        keys present in the request body are applied; omitted relays
+        keep their current state. At least one key is required.
+        Updates min-runtime tracking for consistency with the control loop.
+      responses:
+        '200':
+          description: Outputs updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [true]
+                  fan:
+                    type: boolean
+                  humidifier:
+                    type: boolean
+                  heater:
+                    type: boolean
+        '400':
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [false]
+                  error:
+                    type: string
+        '422':
+          description: No valid keys provided
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [false]
+                  error:
+                    type: string
+              examples:
+                empty_body:
+                  summary: No relay keys provided
+                  value:
+                    ok: false
+                    error: 'the body must include at least one of: "humidifier", "fan", "heater"'
       tags:
         - outputs
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -179,47 +521,253 @@ paths:
                   type: boolean
             example:
               fan: true
-              humidifier: false
-              heater: false
   /control:
     get:
       summary: Get control loop status
-      responses: {}
-      tags:
-        - control
-    post:
-      summary: Toggle control loop
-      responses: {}
-      tags:
-        - control
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                enabled:
-                  type: boolean
-            example:
-              enabled: false
-  /:
-    get:
-      summary: Get all the system's current parameters
-      parameters:
-        - name: force
-          in: query
-          required: false
-          deprecated: false
-          schema: {}
-          example: '1'
       responses:
         '200':
-          description: Full system snapshot
+          description: Control loop enabled state
           content:
             application/json:
               schema:
                 type: object
                 properties:
+                  enabled:
+                    type: boolean
+      tags:
+        - control
+    post:
+      summary: Toggle control loop
+      description: >-
+        Enable or disable the hysteresis control loop. When disabled,
+        all relays are turned off immediately (relays_off) and
+        min-runtime tracking is reset.
+      responses:
+        '200':
+          description: Control loop state updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+        '422':
+          description: Missing or invalid "enabled" field
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: 'send {"enabled": true|false}'
+      tags:
+        - control
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+            example:
+              enabled: false
+  /provision:
+    post:
+      summary: Provision Wi-Fi credentials (AP mode only)
+      description: >-
+        Accepts Wi-Fi credentials, writes them to config.json, and
+        schedules a reboot in 2 seconds. Only available when the unit
+        is in AP provisioning mode.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wifi]
+              properties:
+                wifi:
+                  type: object
+                  required: [ssid]
+                  properties:
+                    ssid:
+                      type: string
+                      description: Wi-Fi network name
+                    password:
+                      type: string
+                      description: Wi-Fi password (omit for open networks)
+                    networks:
+                      type: array
+                      description: Fallback networks to try if primary fails
+                      items:
+                        type: object
+                        properties:
+                          ssid:
+                            type: string
+                          password:
+                            type: string
+            example:
+              wifi:
+                ssid: MyNetwork
+                password: secret
+      responses:
+        '200':
+          description: Credentials saved, rebooting
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [true]
+                  wifi:
+                    type: object
+                    properties:
+                      ssid:
+                        type: string
+                        description: The SSID that was saved
+              example:
+                ok: true
+                wifi:
+                  ssid: MyNetwork
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              examples:
+                no_wifi:
+                  summary: Missing wifi object
+                  value:
+                    error: wifi object is required
+                no_ssid:
+                  summary: Missing SSID
+                  value:
+                    error: wifi.ssid is required
+      tags:
+        - provisioning
+  /:
+    get:
+      summary: Get all the system's current parameters
+      description: >-
+        In STA mode returns a full JSON snapshot of system state.
+        In AP provisioning mode returns an HTML setup form
+        (Content-Type: text/html) — see POST /provision.
+      responses:
+        '200':
+          description: >-
+            Full system snapshot (STA mode, application/json) or
+            HTML provisioning form (AP mode, text/html).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  system:
+                    type: object
+                    description: Same as GET /system (without uptime)
+                    properties:
+                      software:
+                        type: object
+                        properties:
+                          version:
+                            type: string
+                          device_name:
+                            type: string
+                            nullable: true
+                      micropython:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          version:
+                            type: string
+                            nullable: true
+                          version_tuple:
+                            type: array
+                            nullable: true
+                            items:
+                              type: integer
+                          mpy:
+                            type: integer
+                            nullable: true
+                          build:
+                            type: string
+                      hardware:
+                        type: object
+                        properties:
+                          platform:
+                            type: string
+                            nullable: true
+                          board:
+                            type: string
+                            nullable: true
+                          port:
+                            type: string
+                            nullable: true
+                          cpu:
+                            type: object
+                            properties:
+                              freq_mhz:
+                                type: integer
+                                nullable: true
+                      wifi:
+                        type: object
+                        properties:
+                          mac:
+                            type: string
+                            nullable: true
+                          ip:
+                            type: string
+                            nullable: true
+                          port:
+                            type: integer
+                            nullable: true
+                          hostname:
+                            type: string
+                            nullable: true
+                  health:
+                    type: object
+                    description: Same as GET /health (without uptime)
+                    properties:
+                      mem:
+                        type: object
+                        properties:
+                          total: { type: integer }
+                          used: { type: integer }
+                          free: { type: integer }
+                          used_pct: { type: integer, nullable: true }
+                      fs:
+                        type: object
+                        properties:
+                          total: { type: integer }
+                          used: { type: integer }
+                          free: { type: integer }
+                          used_pct: { type: integer, nullable: true }
+                      wifi:
+                        type: object
+                        properties:
+                          connected: { type: boolean }
+                          rssi: { type: integer, nullable: true }
+                      mcu_temp_c:
+                        type: number
+                        nullable: true
+                      event_loop_util_pct:
+                        type: integer
+                        nullable: true
+                      uptime_s:
+                        type: integer
                   uptime:
                     type: object
                     properties:
@@ -231,7 +779,7 @@ paths:
                         description: Current session uptime (seconds)
                       reboot_reason:
                         type: string
-                        enum: [power_on, watchdog, scheduled, unknown]
+                        enum: [scheduled, soft, hard, watchdog, power_on, unknown]
                         description: Reason for the most recent reboot
                       scheduled_reboot:
                         type: object
@@ -245,6 +793,67 @@ paths:
                           minute:
                             type: integer
                             description: Target minute for scheduled reboot (0-59)
+                  devices:
+                    type: object
+                    description: Same as GET /setup
+                    properties:
+                      pins:
+                        type: object
+                        properties:
+                          dht: { type: integer }
+                          humidifier: { type: integer }
+                          fan: { type: integer }
+                          heater: { type: integer }
+                      active_high:
+                        type: boolean
+                  sensors:
+                    type: object
+                    properties:
+                      dht:
+                        type: object
+                        description: Same as GET /sensors
+                        properties:
+                          sensor_ok:
+                            type: boolean
+                          temperature:
+                            type: integer
+                            nullable: true
+                          humidity:
+                            type: integer
+                            nullable: true
+                          last_ok_age_s:
+                            type: integer
+                            nullable: true
+                          last_error:
+                            type: string
+                            nullable: true
+                  outputs:
+                    type: object
+                    description: Same as GET /outputs
+                    properties:
+                      fan:
+                        type: boolean
+                      humidifier:
+                        type: boolean
+                      heater:
+                        type: boolean
+                  setpoints:
+                    type: object
+                    description: Same as GET /setpoints
+                    properties:
+                      temperature:
+                        type: integer
+                      humidity:
+                        type: integer
+                  control_loop_enabled:
+                    type: boolean
+                    description: Whether the hysteresis control loop is currently enabled
+            text/html:
+              schema:
+                type: string
+                description: HTML provisioning form (AP mode only)
+      tags:
+        - monitoring
   /reboot:
     post:
       summary: Trigger a reboot

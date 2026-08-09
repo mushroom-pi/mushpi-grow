@@ -10,7 +10,7 @@ _DEFAULT = {
     "hub_url": "",
     "device_name": "PicoDevice",
     "api_port": 5000,
-    "control": {"period_s": 5, "hyst_hum": 5, "hyst_temp": 1,
+    "control": {"period_s": 10, "hyst_hum": 5, "hyst_temp": 1,
                 "humidity_deadband": 3, "temperature_deadband": 1,
                 "min_runtime": 30},
     "reboot": {"enabled": False, "hour": 4, "minute": 0,
