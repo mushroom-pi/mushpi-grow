@@ -9,7 +9,7 @@ MicroPython firmware for Raspberry Pi Pico 2W. Controls humidity and temperature
 There are no traditional build or test commands — this is plain MicroPython uploaded directly to the Pico:
 
 - Deploy via the **MicroPico** VSCode extension (`paulober.pico-w-go` in `.vscode/extensions.json`). Upload all `.py` files, `.html` files (e.g. `app/provision.html`), and `config.json` to the Pico's flash.
-- Required third-party libs go in `/lib/` on the device: `microdot.py`, `urequests.py` (already vendored in the repo).
+- Required third-party libs go in `/lib/` on the device: `microdot.py`, `urequests.py` (present in `lib/` locally but gitignored — not tracked in git).
 - Bump `_SOFTWARE_VERSION` in `app/state.py` on every release — it is the single source of truth for the firmware version (returned by `GET /system` and `GET /`).
 
 ## Project Structure
@@ -18,6 +18,8 @@ There are no traditional build or test commands — this is plain MicroPython up
 mushpi-grow/
 ├── main.py              # Entry point — wires everything together
 ├── config.json          # WiFi, hub URL, device name, control params (gitignored)
+├── README.md           # Setup + deployment instructions
+├── HARDWARE.md         # Canonical BOM, pin map, wiring, power (maintained by mushpi-electronics)
 ├── app/
 │   ├── state.py         # Shared mutable dicts (status, setpoints, devices)
 │   ├── hw.py            # IO class — GPIO init, relay control, LED heartbeat
@@ -34,10 +36,10 @@ mushpi-grow/
 │   ├── provision.html   # HTML form served in AP provisioning mode
 │   └── shutdown.py      # graceful_shutdown() + reboot() + soft_reboot()
 ├── spec/
-│   └── openapi.yaml     # Hand-maintained OpenAPI 3.0 spec (exported from Bruno)
+│   └── openapi.yaml     # Hand-maintained OpenAPI 3.0 spec (committed)
 └── lib/
-    ├── microdot.py      # Microdot async web framework (vendored)
-    └── urequests.py     # MicroPython HTTP client (vendored)
+    ├── microdot.py      # Microdot async web framework (gitignored — upload to device /lib/)
+    └── urequests.py     # MicroPython HTTP client (gitignored — upload to device /lib/)
 ```
 
 ## REST API (port 5000)
@@ -54,7 +56,7 @@ mushpi-grow/
 | GET / POST | `/control`  | `{"enabled": bool}` — disables control immediately (calls `relays_off()` sync) |
 | GET / POST | `/setup`    | GPIO pin mapping + `active_high`                          |
 | POST       | `/provision`| Wi-Fi credential provisioning (AP mode only — writes config.json + reboots) |
-| POST       | `/reboot`   | `{"type": "soft"\|"hard"}` — triggers graceful reboot (soft = `machine.soft_reset()`, hard = `machine.reset()`). Response returns before reboot executes. |
+| POST       | `/reboot`   | `{"type": "soft"\|"hard"}` (optional, defaults to `soft`) — triggers graceful reboot (soft = `machine.soft_reset()`, hard = `machine.reset()`). Response returns before reboot executes. |
 
 ## Shared State Rules
 
@@ -86,4 +88,4 @@ mushpi-grow/
 
 ## API Specification
 
-The Pico firmware has no automatic spec generation (MicroPython, 264 KB RAM). The REST API is documented manually in `spec/openapi.yaml` (committed, hand-maintained OpenAPI 3.0). The **Bruno collection is the source of truth**: when the API changes, update Bruno first, then export it as `spec/openapi.yaml` and commit. The mock (`mushpi-mock`) reads this spec as its canonical reference — keep it current.
+The Pico firmware has no automatic spec generation (MicroPython, 264 KB RAM). The REST API is documented manually in `spec/openapi.yaml` (committed, hand-maintained OpenAPI 3.0 — there is no Bruno collection; edit the YAML directly when the API changes). The mock (`mushpi-mock`) reads this spec as its canonical reference — keep it current.

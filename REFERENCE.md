@@ -98,6 +98,7 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
   "device_name": "pico-unit1",
   "api_port": 5000,
   "control": { "period_s": 10, "hyst_hum": 5, "hyst_temp": 1, "humidity_deadband": 3, "temperature_deadband": 1, "min_runtime": 30 },
+  "reboot": { "enabled": false, "hour": 4, "minute": 0, "ntp_host": "pool.ntp.org", "ntp_tz_offset_hours": 0 },
   "pins": { "dht": 4, "humidifier": 6, "fan": 7, "heater": 8 },
   "active_high": false
 }
@@ -106,10 +107,11 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 - `device_name` must match the `handle` field in `mushpi-server`'s `PicoUnit` entity.
 - `hub_secret` must match the server's `PICO_ANNOUNCE_SECRET` env var. Sent as `X-Pico-Secret` header on every announcement POST.
 - `config.json` is gitignored — a checked-in copy with real credentials exists locally.
-- `config_loader.py` provides defaults for all fields (device_name: `"PicoDevice"`, period_s: `10`).
+- `config_loader.py` provides defaults for all fields **except `hub_secret`** (which has no default — treated as optional `""` by the validator). Example defaults: device_name `"PicoDevice"`, period_s `10`.
 - `networks` is optional. If present, `connect_wifi()` tries each in order; first success wins. The primary `ssid`/`password` pair is tried first.
 - `pins` is a dict mapping device roles to GPIO pin numbers (`dht`, `humidifier`, `fan`, `heater`). Each value must be an integer in 1–29 (GP0 is reserved for force-provision). Persisted by `POST /setup`; falls back to defaults if missing.
 - `active_high` is a boolean controlling relay polarity (`false` = active-low, the safe default for common relay modules). Persisted by `POST /setup`; falls back to `false` if missing.
+- `reboot` controls the daily scheduled soft-reboot + NTP sync (`enabled`, `hour`, `minute`, `ntp_host`, `ntp_tz_offset_hours`). Disabled by default (`enabled: false`).
 
 ## LED Status Indicators
 
