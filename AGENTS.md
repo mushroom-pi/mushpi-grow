@@ -10,7 +10,7 @@ There are no traditional build or test commands — this is plain MicroPython up
 
 - Deploy via the **MicroPico** VSCode extension (`paulober.pico-w-go` in `.vscode/extensions.json`). Upload all `.py` files, `.html` files (e.g. `app/provision.html`), and `config.json` to the Pico's flash.
 - Required third-party libs go in `/lib/` on the device: `microdot.py`, `urequests.py` (present in `lib/` locally but gitignored — not tracked in git).
-- Bump `_SOFTWARE_VERSION` in `app/state.py` on every release — it is the single source of truth for the firmware version (returned by `GET /system` and `GET /`).
+- Bump `_SOFTWARE_VERSION` in `app/state.py` only when releasing (on the `main` branch), never during day-to-day `dev` work — it is the single source of truth for the firmware version (returned by `GET /system` and `GET /`). Keep `spec/openapi.yaml` `info.version` equal to it, and keep the mock's version in sync.
 
 ## Project Structure
 
@@ -63,7 +63,7 @@ mushpi-grow/
 - `app/state.py` exports mutable dictionaries: `status`, `setpoints`, `devices`.
 - **Always mutate in place** — never reassign these module-level names.
 - `_system_info` is cached (built once, read many times).
-- `_SOFTWARE_VERSION` in `state.py` is the single source of truth for the firmware version. Bump it on every release.
+- `_SOFTWARE_VERSION` in `state.py` is the single source of truth for the firmware version. Bump it only when releasing (on `main`), keeping `spec/openapi.yaml` `info.version` and the mock in sync.
 - **Relay-state keys must match exactly**: the keys in `status` (`fan`, `humidifier`, `heater`) must match the keys in `devices["pins"]` and the JSON field names returned by `GET /` (`outputs.fan`, etc.) and `GET /outputs`. The `IO` helper methods (`hum_on()`, `fan_on()`, `heat_on()`, etc.) are the **only** code allowed to write these keys. A typo in the key name (e.g. `status["heat"]` instead of `status["heater"]`) causes a silent desync: the GPIO pin toggles correctly but the status dict value stays stale, and the server will always poll `false`.
 - **No GPIO read-back**: relay state in the API responses comes from the cached `status` dict, not from live GPIO reads. The dict keys are the single source of truth — keep them correct.
 - **Never snapshot `status[...]` into module-level dicts at import time** — always read from `status` live inside handlers. Module-level snapshots capture initial values and never update.
