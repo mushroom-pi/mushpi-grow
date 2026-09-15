@@ -4,7 +4,7 @@ import usocket
 import uasyncio as asyncio
 import ujson
 
-from .state import setpoints
+from .state import setpoints, _API_VERSION
 
 # Use MicroPython's urequests (upload to /lib if missing)
 try:
@@ -29,7 +29,8 @@ def payload(wlan, extra=None):
         "mac": system['wifi']['mac'],
         "port": system['wifi']['port'],
         "micropython_version": system["micropython"]["build"],
-        "software_version": system["software"]["version"],
+        "firmware_version": system["software"]["version"],
+        "api_version": _API_VERSION,
         "board": system["hardware"]["board"],
         "board_total_mem_byte": health["mem"]["total"],
         "board_total_fs_byte": health["fs"]["total"],

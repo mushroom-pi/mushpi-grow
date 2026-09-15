@@ -5,6 +5,16 @@ import utime as time
 # version (returned by GET /system and GET /).
 _SOFTWARE_VERSION = "0.8.4"
 
+# ── API contract version ──────────────────────────────────────────
+# Pico↔Server REST contract generation.  Bump ONLY on a breaking change
+# to that contract (endpoint removed/renamed, incompatible request/
+# response shape, changed semantics); additive changes do NOT bump it.
+# Unlike _SOFTWARE_VERSION this may move on `dev` — it is a wire-
+# contract change, not a release version.  If it bumps,
+# _SOFTWARE_VERSION must also get at least a MINOR bump.
+# Canonical documentation: spec/openapi.yaml.
+_API_VERSION = 1
+
 # global-ish dictionaries the whole app can import
 setpoints = {"temperature": 25, "humidity": 60}
 status = {

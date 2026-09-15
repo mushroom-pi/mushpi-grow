@@ -10,7 +10,7 @@ There are no traditional build or test commands — this is plain MicroPython up
 
 - Deploy via the **MicroPico** VSCode extension (`paulober.pico-w-go` in `.vscode/extensions.json`). Upload all `.py` files, `.html` files (e.g. `app/provision.html`), and `config.json` to the Pico's flash.
 - Required third-party libs go in `/lib/` on the device: `microdot.py`, `urequests.py` (present in `lib/` locally but gitignored — not tracked in git).
-- Bump `_SOFTWARE_VERSION` in `app/state.py` only when releasing (on the `main` branch), never during day-to-day `dev` work — it is the single source of truth for the firmware version (returned by `GET /system` and `GET /`). Keep `spec/openapi.yaml` `info.version` equal to it, and keep the mock's version in sync.
+- Bump `_SOFTWARE_VERSION` in `app/state.py` only when releasing (on the `main` branch), never during day-to-day `dev` work — it is the single source of truth for the firmware version (returned by `GET /system` and `GET /`). Keep `spec/openapi.yaml` `info.version` equal to it, and keep the mock's version in sync. `_API_VERSION` in the same file is the Pico↔Server REST contract generation — bump it only on breaking contract changes (additive changes do not bump it); it is the one exception to the release gate and may move on `dev`, and whenever it moves `_SOFTWARE_VERSION` must also get at least a MINOR bump.
 
 ## Project Structure
 
@@ -88,4 +88,4 @@ mushpi-grow/
 
 ## API Specification
 
-The Pico firmware has no automatic spec generation (MicroPython, 264 KB RAM). The REST API is documented manually in `spec/openapi.yaml` (committed, hand-maintained OpenAPI 3.0 — there is no Bruno collection; edit the YAML directly when the API changes). The mock (`mushpi-mock`) reads this spec as its canonical reference — keep it current.
+The Pico firmware has no automatic spec generation (MicroPython, 264 KB RAM). The REST API is documented manually in `spec/openapi.yaml` (committed, hand-maintained OpenAPI 3.0 — there is no Bruno collection; edit the YAML directly when the API changes). The mock (`mushpi-mock`) reads this spec as its canonical reference — keep it current. Out-of-band payloads such as the boot announce (POSTed to the hub, not a served path) are documented in `spec/openapi.yaml` under `components.schemas` and must never be added under `paths:`; the announce payload must stay aligned with `mushpi-mock` and the server's `AnnouncePicoUnitDto`.

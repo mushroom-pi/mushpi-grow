@@ -3,7 +3,7 @@ import uasyncio as asyncio
 
 from microdot import Microdot, Response
 
-from .state import status, setpoints, devices, get_system_info
+from .state import status, setpoints, devices, get_system_info, _SOFTWARE_VERSION, _API_VERSION
 from .metrics import system_snapshot
 from .control import is_control_enabled, set_control_enabled, evaluate_hysteresis, reset_on_since, mark_relay_off, mark_relay_on
 from .config_loader import save_config
@@ -287,6 +287,8 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
             return Response(html, status_code=200, headers={'Content-Type': 'text/html'})
         return {
             "system": get_system_info(),
+            "firmware_version": _SOFTWARE_VERSION,
+            "api_version": _API_VERSION,
             "health": system_snapshot(wlan),
             "uptime": _uptime_with_reboot(),
             "devices": devices,

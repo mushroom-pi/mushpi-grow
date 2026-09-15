@@ -8,6 +8,13 @@ info:
     (open network, 192.168.4.1) GET / returns an HTML setup form
     (text/html) instead of JSON; POST /provision accepts Wi-Fi
     credentials, writes config.json, and reboots the unit into STA mode.
+    On boot (and on runtime re-announce) the unit POSTs its presence to
+    the hub server — URL from config.json `hub_url`, authenticated via
+    the `X-Pico-Secret` header. That announce payload is not a path
+    served by this API; it is documented in
+    components.schemas.AnnouncePayload and carries `firmware_version`
+    (mirrors `system.software.version`) and `api_version` (the
+    Pico↔Server REST contract generation, currently 1).
 servers:
   - url: '{{baseUrl}}'
 paths:
@@ -737,6 +744,17 @@ paths:
                           hostname:
                             type: string
                             nullable: true
+                  firmware_version:
+                    type: string
+                    description: Firmware version (SemVer, from _SOFTWARE_VERSION); mirrors system.software.version
+                  api_version:
+                    type: integer
+                    enum: [1]
+                    description: >-
+                      Pico↔Server REST contract generation; bumped only on a
+                      breaking contract change (endpoint removed/renamed,
+                      incompatible request/response shape, changed semantics).
+                      Additive changes do not bump it.
                   health:
                     type: object
                     description: Same as GET /health (without uptime)
@@ -912,3 +930,62 @@ paths:
                     error: "type must be 'soft' or 'hard'"
       tags:
         - system
+components:
+  schemas:
+    AnnouncePayload:
+      description: >-
+        Presence payload the unit POSTs to the *server's* announce
+        endpoint (POST /v1/pico-units/announce) on boot and on runtime
+        re-announce (Wi-Fi reconnect). The unit serves no such path
+        itself, so this out-of-band payload lives here instead of under
+        paths:. mushpi-mock mirrors this payload and the server's
+        AnnouncePicoUnitDto consumes it.
+      type: object
+      required: [handle]
+      properties:
+        handle:
+          type: string
+          nullable: true
+          description: Device name from config.json (matches hub handle)
+        ip:
+          type: string
+          nullable: true
+          description: Wi-Fi IP address
+        mac:
+          type: string
+          nullable: true
+          description: Wi-Fi MAC address (colon-separated hex)
+        port:
+          type: integer
+          nullable: true
+          description: API port from config.json
+        micropython_version:
+          type: string
+          description: MicroPython build string (mirrors system.micropython.build)
+        firmware_version:
+          type: string
+          description: >-
+            Firmware version (SemVer, from _SOFTWARE_VERSION); mirrors
+            system.software.version
+        api_version:
+          type: integer
+          enum: [1]
+          description: >-
+            Pico↔Server REST contract generation; bumped only on a
+            breaking contract change (endpoint removed/renamed,
+            incompatible request/response shape, changed semantics).
+            Additive changes do not bump it.
+        board:
+          type: string
+          nullable: true
+          description: Board description (e.g. "Raspberry Pi Pico W with RP2040")
+        board_total_mem_byte:
+          type: integer
+          description: Total heap in bytes (mirrors health.mem.total)
+        board_total_fs_byte:
+          type: integer
+          description: Total filesystem size in bytes (mirrors health.fs.total)
+        board_cpu_freq_mhz:
+          type: integer
+          nullable: true
+          description: CPU clock frequency in MHz
