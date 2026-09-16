@@ -25,9 +25,11 @@ Topics covered here: startup sequence · firmware/mDNS requirements · hardware 
 12. **STA mode** (normal boot):
     - `state.attach_wlan_info(wlan, cfg)` — caches MAC, IP, hostname, port.
     - Initialises hardware WDT (`WDT(timeout=8000)` — 8-second timeout). Must be created **after** `connect_wifi()` returns (boot WiFi can take 30s+ and would trigger a spurious reboot).
+    - **WDT (Watchdog Timer)**: STA mode only (not AP provisioning). Fed from `control_loop`'s 200ms chunked-sleep loop — covers event-loop-wide blocking hangs and control_loop task death. Not fed from an independent task (would miss control_loop death).
     - `main()` async task:
       - `start_metrics()` — launches background event-loop utilisation meter.
       - Spawns `announce_then_retry_once()` — tries POST to hub; if it fails, waits 60 s and retries once.
+      - **`announce_then_retry_once` is re-entrant**: safe to call at runtime (not just boot). The caller must cancel any prior announce task before spawning a new one to avoid overlapping heartbeat/LED control.
       - Spawns `control_loop()` — hysteresis loop; also feeds the WDT every 200ms via its chunked-sleep loop. If the loop hangs or dies, the WDT expires → hard reboot → WiFi reconnects + re-announces.
       - Spawns `wifi_watchdog_loop()` — monitors link health, reconnects with exponential backoff on drop.
       - Spawns `reboot_scheduler_loop()` — syncs NTP after WiFi connect, then polls every 60s; triggers `machine.soft_reset()` at the configured hour/minute (disabled by default). Not spawned in AP mode.
@@ -93,7 +95,7 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
       {"ssid": "FallbackNetwork", "password": "secret2"}
     ]
   },
-  "hub_url": "http://<hub_ip>:3000/pico-units/announce",
+  "hub_url": "http://<hub_ip>:3000/v1/pico-units/announce",
   "hub_secret": "mushpi-dev-secret",
   "device_name": "pico-unit1",
   "api_port": 5000,
@@ -105,8 +107,9 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 ```
 
 - `device_name` must match the `handle` field in `mushpi-server`'s `PicoUnit` entity.
+- `hub_url` must include the server's versioned announce path — the `/v1/` prefix (see example above); there is no unversioned announce endpoint.
 - `hub_secret` must match the server's `PICO_ANNOUNCE_SECRET` env var. Sent as `X-Pico-Secret` header on every announcement POST.
-- `config.json` is gitignored — a checked-in copy with real credentials exists locally.
+- `config.json` is gitignored — the local working copy holds the real credentials (untracked, not committed).
 - `config_loader.py` provides defaults for all fields **except `hub_secret`** (which has no default — treated as optional `""` by the validator). Example defaults: device_name `"PicoDevice"`, period_s `10`.
 - `networks` is optional. If present, `connect_wifi()` tries each in order; first success wins. The primary `ssid`/`password` pair is tried first.
 - `pins` is a dict mapping device roles to GPIO pin numbers (`dht`, `humidifier`, `fan`, `heater`). Each value must be an integer in 1–29 (GP0 is reserved for force-provision). Persisted by `POST /setup`; falls back to defaults if missing.
@@ -131,12 +134,13 @@ When the Pico fails to connect to Wi-Fi after 3 retries (or GP0 is held LOW at b
 
 - `urequests` does not support the `json=` kwarg — pass pre-serialised `ujson.dumps(body)` as `data=` with explicit `Content-Type: application/json` header.
 - `usocket.setdefaulttimeout()` is used to set per-request timeouts and restored to `None` afterwards.
-- DHT11 can return implausible readings; `DHTReader.plausible()` validates `-10 ≤ t ≤ 60` and `0 ≤ h ≤ 100`.
+- DHT11 can return implausible readings; `DHTReader.plausible()` validates `-10 ≤ t ≤ 60` and `0 ≤ h ≤ 100`. **Garbage sensor readings must never leak into `status`**: `DHTReader.read()` writes `status["temperature"]` and `status["humidity"]` ONLY after `plausible()` returns `True`. Implausible readings set `last_sensor_error` but leave the last plausible values in place, so the control loop's `None` guards correctly suppress actuation during sensor faults.
 - **Sentinel-based reboot classification**: `machine.reset_cause()` on rp2 is unreliable for distinguishing intentional from watchdog reboots (both `machine.reset()` and `machine.soft_reset()` may report as `WDT_RESET`). Instead, **all intentional reboots** (scheduled, `POST /reboot`) write a `pending_type` sentinel to `uptime.json` via `mark_pending_reboot()` before resetting. `init_uptime()` reads the sentinel first; `reset_cause()` is used only as a fallback for unexpected reboots.
 - **No battery-backed RTC**: `time.localtime()` is garbage until NTP-synced. Any wall-clock feature must NTP-sync first (blocking, in the STA boot path — never from an async task). NTP-sync logic lives in `app/reboot_scheduler.py`.
 
 ### Persistence
 
 - **`uptime.json`** is a runtime-persisted file at flash root (like `config.json`). Created by `init_uptime()` on every boot. Schema: `{"cumulative_ms": int, "reboot_done_date": "YYYY-MM-DD"}`. Device-local only — never sent to the hub. Atomic write via `.tmp` + `os.rename`.
+- **`reboot_reason` enum**: the valid values produced by `app/uptime.py` are `scheduled`, `soft`, `hard`, `watchdog`, `power_on`, `unknown`. Document these in the `uptime` response schemas and keep `spec/openapi.yaml` in sync.
 - **Persist config** with `save_config(cfg)` — atomic write via `config.json.tmp` + `os.rename`. Never `open('config.json','w')` directly.
 - **`POST /provision` `wifi` key** persists to flash. **`POST /setup`** also persists `pins` and `active_high` to flash (survives reboot). Setpoints (via `POST /setpoints`) remain runtime-only (lost on reboot).
