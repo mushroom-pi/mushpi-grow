@@ -48,14 +48,14 @@ mushpi-grow/
 |------------|-------------|--------------------------------------------------------|
 | GET        | `/`         | STA: full JSON snapshot. AP: HTML provisioning form. CORS on all responses. |
 | GET        | `/ping`     | Liveness (empty 200)                                   |
-| GET        | `/health`   | RAM, FS, Wi‑Fi RSSI, MCU temp, uptime, loop util %     |
+| GET        | `/health`   | RAM, FS, Wi‑Fi RSSI, MCU temp, loop util %; uptime appears twice: `uptime_s` (scalar, cumulative seconds) and the `uptime` object (`total_s`, `since_boot_s`, `reboot_reason`, `scheduled_reboot`) |
 | GET        | `/system`   | Board, MicroPython version, software version, Wi‑Fi IP/MAC |
 | GET        | `/sensors`  | DHT reading; `?force=1` triggers on-demand measurement via `sensor.read()` (never raw `sensor.d.measure()`) |
 | GET / POST | `/setpoints`| `{"temperature": int, "humidity": int}` — immediate hysteresis re-evaluation when control is enabled |
 | GET / POST | `/outputs`  | `{"fan"?: bool, "humidifier"?: bool, "heater"?: bool}` — POST applies only keys present (≥1 required); responses always return all three |
 | GET / POST | `/control`  | `{"enabled": bool}` — disabling calls `relays_off()` immediately (synchronous) |
 | GET / POST | `/setup`    | GPIO pin mapping + `active_high`                          |
-| POST       | `/provision`| Wi-Fi credential provisioning (AP mode only — writes config.json + reboots) |
+| POST       | `/provision`| Wi-Fi credential provisioning — intended for AP mode but **not mode-guarded**: accepted in STA mode too (writes config.json + reboots) |
 | POST       | `/reboot`   | `{"type": "soft"\|"hard"}` (optional, default `soft`) — graceful reboot (soft = `machine.soft_reset()`, hard = `machine.reset()`); response returns before reboot. |
 
 ## Shared State Rules
@@ -63,7 +63,7 @@ mushpi-grow/
 - `app/state.py` exports mutable dictionaries: `status`, `setpoints`, `devices`.
 - **Always mutate in place** — never reassign these module-level names.
 - `_system_info` is cached (built once, read many times).
-- **Relay-state keys must match exactly**: `status` keys (`fan`, `humidifier`, `heater`) must match `devices["pins"]` and the JSON names in `GET /` (`outputs.*`) and `GET /outputs`. The `IO` helpers (`hum_on()`, `fan_on()`, `heat_on()`, …) are the **only** writers of these keys. A key typo (e.g. `heat` vs `heater`) silently desyncs: the GPIO toggles but `status` stays stale, so the server always polls `false`.
+- **Relay-state keys must match exactly**: `status` keys (`fan`, `humidifier`, `heater`) must match `devices["pins"]` and the JSON names in `GET /` (`outputs.*`) and `GET /outputs`. The `IO` helpers (`hum_on()`, `fan_on()`, `heat_on()`, …) are the **only** writers of these keys, with one sanctioned exception: `POST /outputs` (`_setoutputs` in `app/api.py`), which is the documented manual-override path — it drives GPIO via the generic `io.write(pin, bool)` helper, then sets `status[...]` itself and calls `mark_relay_on()`/`mark_relay_off()` (from `app/control.py`) so min-runtime tracking stays consistent. Any *other* code writing these keys outside an `IO` helper is a bug. A key typo (e.g. `heat` vs `heater`) silently desyncs: the GPIO toggles but `status` stays stale, so the server always polls `false`.
 - **No GPIO read-back**: relay state in the API responses comes from the cached `status` dict, not from live GPIO reads. The dict keys are the single source of truth — keep them correct.
 - **Never snapshot `status[...]` into module-level dicts at import time** — always read from `status` live inside handlers. Module-level snapshots capture initial values and never update.
 
@@ -75,9 +75,9 @@ mushpi-grow/
 - **Module ownership**: `app/wifi.py` owns all WiFi state transitions (connect, reconnect, link monitoring). `app/control.py` owns sensor sampling + hysteresis only. No cross-module WiFi logic in control.py.
 - **HTTP handlers must not perform blocking sensor reads** (e.g. `sensor.d.measure()`) — use the last cached `status` values from `app/state.py` instead. The one exception is `GET /sensors?force=1`, which triggers an on-demand measurement via `sensor.read()`.
 - **All POST handler error responses use the shape `{"ok": False, "error": "..."}`**. Do not mix flat `{"error": "..."}` with `{"ok": False, ...}` — standardise on `{"ok": False, "error": "..."}` across `/setpoints`, `/outputs`, `/control`, `/setup`, `/provision`, and `/reboot`.
-- **All I/O is async** — use `asyncio.create_task()` for background work.
+- **All I/O inside the event loop is async** — use `asyncio.create_task()` for background work. Sole exception: the `main.py` boot path (module level, before `asyncio.run()` starts the loop), where blocking calls are acceptable because nothing else is scheduled yet — this is where the blocking `connect_wifi()` runs.
 - **Error handling**: bare `except:` is acceptable; always log errors with `print()`.
-- **Graceful shutdown**: use `stop_event` from `app/shutdown.py` — loops should check it and exit cleanly. The `finally` block in `main.py` calls `graceful_shutdown()` which turns all outputs off, disconnects WiFi, and deinits the sensor.
+- **Graceful shutdown**: use `stop_event` from `app/shutdown.py` — loops should check it and exit cleanly. The `finally` block in `main.py` calls `graceful_shutdown()` which turns all outputs off and disconnects WiFi (the `sensor` parameter is accepted but unused — it does not deinit the sensor).
 
 ## API Specification
 

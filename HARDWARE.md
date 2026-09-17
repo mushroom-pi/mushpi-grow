@@ -84,6 +84,47 @@ All components (Pico 2W, relay module logic, fan, humidifier, heating mat) are p
 - Add a 500mA polyfuse on the 5V rail.
 - Consider a 100µF electrolytic capacitor across the relay VCC/GND for coil transient suppression.
 
+### MCU Power Budget Limits (Raspberry Pi Pico 2 W / RP2350)
+
+A power-budget check during "add a new component" should warn against the MCU-level limits below, in addition to the 5 V rail budget covered above. Figures are verified against the **Pico 2 W datasheet** (RP-008304-DS), the **RP2350 datasheet** (RP-008373-DS), the **Raspberry Pi Pico SDK** (master, `src/rp2_common/hardware_gpio/include/hardware/gpio.h`), and the **Richtek RT6150A/B datasheet** (DS6150A/B-05). Items that could not be confirmed against an authoritative source are explicitly marked **unverified**.
+
+#### GPIO drive strength (per-pin, nominal)
+
+The RP2350 pad control block (Pico 2 W datasheet §3.2 "General purpose I/O"; RP2350 datasheet §9.11.3 "Pad Control — User Bank") exposes four programmable drive-strength settings. These are **nominal** ratings at the rated V_OL/V_OH — they are not absolute-maximum sink/source figures.
+
+| Setting | Nominal current | pico-sdk constant |
+|---|---|---|
+| 0 | 2 mA | `GPIO_DRIVE_STRENGTH_2MA` |
+| 1 | 4 mA | `GPIO_DRIVE_STRENGTH_4MA` |
+| 2 | 8 mA | `GPIO_DRIVE_STRENGTH_8MA` |
+| 3 | 12 mA | `GPIO_DRIVE_STRENGTH_12MA` |
+
+The Pico 2 W's `PADS_BANK0_GPIO0_DRIVE` resets to `0` (2 mA nominal); raise it to 8 or 12 mA if a pin must drive a heavier load. The RP2040 datasheet §5.2 ("DC characteristics") uses the same 2/4/8/12 mA ladder.
+
+#### Total GPIO current
+
+**Unverified for RP2350 / Pico 2 W.** The RP2040 datasheet specifies an aggregate "50 mA max current draw (both sourcing and sinking) from all GPIO pins in total" (RP2040 datasheet §5.3 "Power Supplies", cited p. 634; corroborated by Adafruit forum). The equivalent figure for RP2350 lives in chapter 14 "Electrical specifications" of the RP2350 datasheet, which could not be machine-read in full to confirm. The pad structure is shared with RP2040, so the value **may** be the same, but treat any aggregate GPIO current number as unverified for the Pico 2 W until confirmed against RP-008373-DS chapter 14.
+
+#### 3V3 rail (onboard regulator)
+
+The Pico 2 W uses a **Richtek RT6150B-33GQW** buck-boost SMPS to generate 3.3 V from VSYS — the same regulator as the original Pico (RP2040). Two distinct figures appear in the documentation, and they mean different things:
+
+| Figure | Value | What it is | Source |
+|---|---|---|---|
+| RT6150B rated output | **800 mA** | The buck-boost regulator's own datasheet rating | Richtek RT6150A/B datasheet (DS6150A/B-05) — `Current - Output: 800 mA`; DigiKey part detail for `RT6150B-33GQW` |
+| Pico 2 W recommended 3V3 OUT load | **< 300 mA** | A *conservative recommendation* on the Pico 2 W datasheet for external loads on the 3V3(OUT) header pin | Pico 2 W datasheet §2.1 "Pico 2 W pinout": *"maximum output current will depend on RP2350 load and VSYS voltage; it is recommended to keep the load on this pin under 300 mA"* |
+
+The regulator can source more than 300 mA, but the Pico 2 W's 300 mA recommendation already accounts for the RP2350 itself (~100 mA peak, WiFi active), USB PHY, ADC reference, flash, and decoupling/headroom — leaving 300 mA as a safe budget for everything else hanging off the 3V3(OUT) header pin. A power-budget warning against the 3V3 rail should cite **300 mA** as the binding constraint for external 3.3 V loads.
+
+#### Which constraint binds first on this build?
+
+In the current mushroom-pi build, the 3.3 V rail only powers the DHT11 (~2.5 mA measuring) and the Pico's own radio, so the 3V3 OUT limit is **not** the binding constraint. The relay-module coils (~70 mA each × 3 channels ≈ 210 mA at 5 V) and actuators draw from the **5 V rail** via the dedicated ≥ 2 A PSU, and each relay `INx` input only sources a few mA into the optocoupler LED. So the binding order in this configuration is:
+
+1. **5 V rail capacity** (PSU sizing) — the binding constraint.
+2. **3V3 OUT recommended load (300 mA)** — only relevant if a future component draws from the 3V3(OUT) header pin.
+3. **Per-pin GPIO drive strength (12 mA max nominal)** — only relevant if a pin drives a heavy load directly.
+4. **Aggregate GPIO current (likely 50 mA, but unverified for RP2350)** — only relevant if many GPIOs source/sink simultaneously at high nominal drive strength.
+
 ## Component Lifecycle
 
 | Component | GPIOs needed | Protocol | Current draw | Voltage |
