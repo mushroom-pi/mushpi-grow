@@ -56,7 +56,7 @@ mushpi-grow/
 | GET / POST | `/outputs`  | `{"fan"?: bool, "humidifier"?: bool, "heater"?: bool}` — POST applies only keys present (≥1 required); responses always return all three |
 | GET / POST | `/control`  | `{"enabled": bool}` — disabling calls `relays_off()` immediately (synchronous) |
 | GET / POST | `/setup`    | GPIO pin mapping + `active_high`                          |
-| POST       | `/provision`| Wi-Fi credential provisioning — intended for AP mode but **not mode-guarded**: accepted in STA mode too (writes config.json + reboots) |
+| POST       | `/provision`| Wi-Fi credential provisioning — **mode-guarded to AP mode**: in STA mode rejected with 403 `{"ok": false, "error": "..."}` before any config write or reboot; in AP mode writes config.json + reboots |
 | POST       | `/reboot`   | `{"type": "soft"\|"hard"}` (optional, default `soft`) — graceful reboot (soft = `machine.soft_reset()`, hard = `machine.reset()`); response returns before reboot. |
 | OPTIONS    | any         | CORS preflight (`app.options_handler`): per-path `Allow`, `Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS`; `HEAD` answered implicitly by GET routes. Deliberately not in the spec (not contract) — mock's FastAPI CORS middleware handles preflight; no sync duty. |
 

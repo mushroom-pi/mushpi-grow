@@ -590,7 +590,9 @@ paths:
       description: >-
         Accepts Wi-Fi credentials, writes them to config.json, and
         schedules a reboot in 2 seconds. Only available when the unit
-        is in AP provisioning mode.
+        is in AP provisioning mode: in STA (normal) mode the request is
+        rejected with 403 before any configuration is written or a
+        reboot is scheduled.
       requestBody:
         required: true
         content:
@@ -662,6 +664,24 @@ paths:
                   summary: Missing SSID
                   value:
                     error: wifi.ssid is required
+        '403':
+          description: Not in AP provisioning mode (rejected before any config write or reboot)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [false]
+                  error:
+                    type: string
+              examples:
+                sta_mode:
+                  summary: Called while the unit runs in STA mode
+                  value:
+                    ok: false
+                    error: provisioning is only available in AP mode
       tags:
         - provisioning
   /:

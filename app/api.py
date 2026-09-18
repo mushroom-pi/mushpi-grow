@@ -147,6 +147,10 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
     @app.post('/provision')
     def _provision(req):
+        # Mode guard: AP provisioning only. Reject in STA BEFORE
+        # any side effect — no save_config, no config mutation, no reboot.
+        if mode != "ap":
+            return {"ok": False, "error": "provisioning is only available in AP mode"}, 403
         try:
             data = req.json
             wifi_data = data.get("wifi") if isinstance(data, dict) else None
