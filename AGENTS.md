@@ -1,6 +1,6 @@
 # mushpi-grow — Pico Growing Unit
 
-MicroPython firmware for Raspberry Pi Pico 2W. Controls humidity and temperature via hysteresis, serves a REST API on port 5000, and announces itself to a central hub on boot.
+MicroPython firmware for Raspberry Pi Pico 2W. Controls humidity and temperature via hysteresis, serves a REST API on `api_port` (default 5000), and announces itself to a central hub on boot.
 
 > **Reference**: long-tail details (startup sequence, firmware/mDNS requirements, hardware pins, control-loop algorithm, `config.json` schema, AP provisioning, LED states, MicroPython quirks, RAM/gc, persistence) live in [`REFERENCE.md`](./REFERENCE.md). Load it **only when the task touches those areas** — do not read it on every spawn.
 
@@ -20,15 +20,16 @@ mushpi-grow/
 ├── config.json          # WiFi, hub URL, device name, control params (gitignored)
 ├── README.md           # Setup + deployment instructions
 ├── HARDWARE.md         # Canonical BOM, pin map, wiring, power (maintained by mushpi-electronics)
+├── .vscode/ + .micropico # MicroPico deploy tooling (tracked) — sync/upload file types, Pylance stub paths, ext recommendations
 ├── app/
 │   ├── state.py         # Shared mutable dicts (status, setpoints, devices)
 │   ├── hw.py            # IO class — GPIO init, relay control, LED heartbeat
 │   ├── sensor.py        # DHTReader — reads DHT11, updates status
 │   ├── control.py       # control_loop() — hysteresis-based async coroutine
 │   ├── announce.py      # announce_then_retry_once() — POSTs presence to hub (boot + runtime re-announce); idempotent/re-invocable
-│   ├── api.py           # Microdot REST API (port 5000)
+│   ├── api.py           # Microdot REST API (port `api_port`)
 │   ├── metrics.py       # system_snapshot() — RAM, FS, Wi‑Fi RSSI, MCU temp, uptime, loop util
-│   ├── wifi.py          # connect_wifi() (blocking boot connect), reconnect_once_async() (async reconnect), wifi_watchdog_loop() (link monitor with backoff)
+│   ├── wifi.py          # connect_wifi() (blocking boot connect), reconnect_once_async() (async reconnect), wifi_watchdog_loop() (link monitor with backoff; triggers re-announce on link-up → REFERENCE §Wi-Fi watchdog)
 │   ├── config_loader.py # load_config() + save_config() — atomic config read/write
 │   ├── config_validator.py # validate_config() — boot-time config field validation
 │   ├── uptime.py         # Cumulative uptime tracking, boot-reason classification, uptime.json persistence
@@ -42,7 +43,7 @@ mushpi-grow/
     └── urequests.py     # MicroPython HTTP client (gitignored — upload to device /lib/)
 ```
 
-## REST API (port 5000)
+## REST API (`api_port`, default 5000)
 
 | Method     | Path        | Notes                                                  |
 |------------|-------------|--------------------------------------------------------|
@@ -57,6 +58,7 @@ mushpi-grow/
 | GET / POST | `/setup`    | GPIO pin mapping + `active_high`                          |
 | POST       | `/provision`| Wi-Fi credential provisioning — intended for AP mode but **not mode-guarded**: accepted in STA mode too (writes config.json + reboots) |
 | POST       | `/reboot`   | `{"type": "soft"\|"hard"}` (optional, default `soft`) — graceful reboot (soft = `machine.soft_reset()`, hard = `machine.reset()`); response returns before reboot. |
+| OPTIONS    | any         | CORS preflight (`app.options_handler`): per-path `Allow`, `Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS`; `HEAD` answered implicitly by GET routes. Deliberately not in the spec (not contract) — mock's FastAPI CORS middleware handles preflight; no sync duty. |
 
 ## Shared State Rules
 

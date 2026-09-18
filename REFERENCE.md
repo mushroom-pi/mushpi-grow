@@ -29,6 +29,7 @@ Topics covered here: startup sequence · firmware/mDNS requirements · hardware 
     - `main()` async task:
       - `start_metrics()` — launches background event-loop utilisation meter.
       - Spawns `announce_then_retry_once()` — tries POST to hub; if it fails, waits 60 s and retries once.
+      - **Announce internals**: `announce_then_retry_once()` wraps `announce_once_blocking()` (one-shot urequests POST, body built by `payload()`); each attempt blocks the event loop up to `timeout_s` (default 2 s).
       - **`announce_then_retry_once` is re-entrant**: safe to call at runtime (not just boot). The caller must cancel any prior announce task before spawning a new one to avoid overlapping heartbeat/LED control.
       - Spawns `control_loop()` — hysteresis loop; also feeds the WDT every 200ms via its chunked-sleep loop. If the loop hangs or dies, the WDT expires → hard reboot → WiFi reconnects + re-announces.
       - Spawns `wifi_watchdog_loop()` — monitors link health; on drop, force-clears the LED, reconnects with backoff (5/10/30/60 s, then caps at 60 s — `_BACKOFF_MS`); on link-up, re-announces (see §Wi-Fi watchdog & runtime re-announce).
