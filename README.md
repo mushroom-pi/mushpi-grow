@@ -1,6 +1,6 @@
-# 🍄 Mushroom Pi 🍓 - Pico Growing Unit
+# 🍄 Mushroom Pi 🍓 - Pico Growing Unit Firmware
 
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)![Raspberry Pi](https://img.shields.io/badge/-Raspberry_Pi-C51A4A?style=for-the-badge&logo=Raspberry-Pi)
+![MicroPython](https://img.shields.io/badge/micropython-%232B2728.svg?style=for-the-badge&logo=micropython&logoColor=white)![Raspberry Pi](https://img.shields.io/badge/-Raspberry_Pi-C51A4A?style=for-the-badge&logo=Raspberry-Pi)![OpenCode](https://img.shields.io/badge/opencode-%23000000.svg?style=for-the-badge&logo=opencode&logoColor=ffffff)![Git](https://img.shields.io/badge/git-%23F05033.svg?style=for-the-badge&logo=git&logoColor=white)
 
 A **MicroPython** repo for **Raspberry Pi Pico 2 W** to:
 
