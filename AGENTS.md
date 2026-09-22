@@ -20,6 +20,7 @@ mushpi-grow/
 ├── config.json          # WiFi, hub URL, device name, control params (gitignored)
 ├── README.md           # Setup + deployment instructions
 ├── HARDWARE.md         # Canonical BOM, pin map, wiring, power (maintained by mushpi-electronics)
+├── LICENSE             # GPL-3.0-or-later (verbatim FSF text)
 ├── .vscode/ + .micropico # MicroPico deploy tooling (tracked) — sync/upload file types, Pylance stub paths, ext recommendations
 ├── app/
 │   ├── state.py         # Shared mutable dicts (status, setpoints, devices)
