@@ -1,8 +1,8 @@
 # 🍄 Mushroom Pi 🍓 - Pico Growing Unit Firmware
 
-![MicroPython](https://img.shields.io/badge/micropython-%232B2728.svg?style=for-the-badge&logo=micropython&logoColor=white)![Raspberry Pi](https://img.shields.io/badge/-Raspberry_Pi-C51A4A?style=for-the-badge&logo=Raspberry-Pi)![OpenCode](https://img.shields.io/badge/opencode-%23000000.svg?style=for-the-badge&logo=opencode&logoColor=ffffff)![Git](https://img.shields.io/badge/git-%23F05033.svg?style=for-the-badge&logo=git&logoColor=white)
+![MicroPython](https://img.shields.io/badge/micropython-%232B2728.svg?style=for-the-badge&logo=micropython&logoColor=white)![Raspberry Pi](https://img.shields.io/badge/-Raspberry_Pi-C51A4A?style=for-the-badge&logo=Raspberry-Pi)![Git](https://img.shields.io/badge/git-%23F05033.svg?style=for-the-badge&logo=git&logoColor=white)
 
-A **MicroPython** repo for **Raspberry Pi Pico 2 W** to:
+A **MicroPython** repo for [**Raspberry Pi Pico 2 W**](https://www.raspberrypi.com/products/raspberry-pi-pico-2/) to:
 
 1. Control humidity and temperature conditions in a mushroom growing unit.
 2. Serve the data via a REST API.
