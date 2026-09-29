@@ -24,7 +24,7 @@ Bill of materials, pin map, wiring reference, and power analysis for the Raspber
 | 6 (GP6) | Relay channel 1 (humidifier) | IN1 | Active-low by default. Configurable via `active_high` in `config.json`. |
 | 7 (GP7) | Relay channel 2 (fan) | IN2 | Active-low by default. |
 | 8 (GP8) | Relay channel 3 (heater) | IN3 | Active-low by default. |
-| `LED` | Onboard LED | — | Status indicator. OFF = no WiFi. SOLID = WiFi connected, hub not confirmed. BLINKING = fully operational. SLOW DOUBLE-BLINK (200/200/200/800ms) = AP provisioning mode. |
+| `LED` | Onboard LED | — | Status indicator. **OFF** = no WiFi link (boot, AP-mode setup, or runtime link-down). **CONFIG ERROR** = config invalid at boot; unit stays offline. **SOLID** = WiFi connected, hub announce pending or failed. **BLINKING** = fully operational (announced, polling normally). **SLOW DOUBLE-BLINK** (200/200/200/800ms) = AP provisioning mode. |
 
 ### Available GPIOs
 
@@ -81,8 +81,8 @@ All components (Pico 2W, relay module logic, fan, humidifier, heating mat) are p
 ### Power Supply Requirement
 - A dedicated 5V 2A+ DC power supply with barrel jack is **mandatory** for operation with all three actuators (fan, humidifier, heating mat).
 - Power the Pico via VSYS (pin 39) or USB. Power the relay module VCC directly from the PSU (bypassing the Pico's 3.3V regulator).
-- Add a 500mA polyfuse on the 5V rail.
-- Consider a 100µF electrolytic capacitor across the relay VCC/GND for coil transient suppression.
+- Add a 500mA polyfuse on the Pico's VSYS line (matching the Pico's onboard USB polyfuse rating).
+- Add a 100µF electrolytic capacitor across the relay VCC/GND for coil transient suppression.
 
 ### MCU Power Budget Limits (Raspberry Pi Pico 2 W / RP2350)
 
@@ -137,18 +137,20 @@ In the current mushroom-pi build, the 3.3 V rail only powers the DHT11 (~2.5 mA 
 
 ## Schematics
 
-Mermaid wiring and system block diagrams are maintained in `mushpi-docs/hardware/schematics/`:
+Concept diagrams (Mermaid) are produced by `mushpi-electronics` against this document and embedded by the docs agents into the published site. Canonical home:
 
-- [Wiring diagram](../mushpi-docs/hardware/schematics/wiring-diagram.md) — every physical connection, color-coded by function
-- [System block diagram](../mushpi-docs/hardware/schematics/system-block-diagram.md) — high-level architecture: Pico ↔ Server ↔ Actuators
+- Wiring diagram (pin-level): [mushpi-docs/hardware/wiring.mdx](https://github.com/mushroom-pi/mushpi-docs/blob/main/hardware/wiring.mdx)
+- System block diagram: [mushpi-docs/hardware/components.mdx](https://github.com/mushroom-pi/mushpi-docs/blob/main/hardware/components.mdx)
 
-Key elements covered:
-- Pico 2W pinout (GP0 force-provision, GP4 DHT11, GP6–GP8 relays, VBUS, 3V3 OUT)
+No publisher-facing site URL has been recorded yet — the GitHub source is the honest reference until one is added to the site's `docs.json` or to `mushpi-ops/DEPLOYMENT.md`.
+
+Key elements covered by the diagrams:
+- Pico 2W pinout (GP0 force-provision, GP4 DHT11, GP6–GP8 relays, VBUS / VSYS, 3V3 OUT)
 - DHT11 wiring (VCC, DATA, GND)
 - Relay module internal circuit per channel: optocoupler isolation, NPN driver, flyback diode
 - Actuators: USB mist maker (5V), DC fan (5V), USB heating mat (5V)
 - Force-provision button (GP0 → GND)
-- Power section: dedicated 5V 2A PSU, 3.3V rail, decoupling capacitors, polyfuse
+- Power section: dedicated 5V 2A+ PSU feeding both the relay module VCC and the actuators; Pico powered separately via USB or VSYS; 3V3(OUT) only feeds the DHT11
 
 ---
 
@@ -172,35 +174,35 @@ Replace all the individual USB cables with a **single 5V DC power supply** feedi
 
 ```
                  ┌──────────────────────────────────┐
-                 │     5V DC Power Supply (2.5A+)    │
-                 │   Wall plug → barrel jack output  │
+                 │     5V DC Power Supply (2.5A+)   │
+                 │   Wall plug → barrel jack output │
                  └───────────┬──────────────────────┘
                              │
                       (2 wires: red +, black -)
                              │
                              ▼
                  ┌──────────────────────────────────┐
-                 │     DC Barrel Jack Socket          │
-                 │   5.5×2.1mm panel-mount            │
+                 │     DC Barrel Jack Socket        │
+                 │   5.5×2.1mm panel-mount          │
                  └───────────┬──────────────────────┘
                              │
                       (2 wires: red +, black -)
                              │
                              ▼
-                 ┌──────────────────────────────────┐
-                 │     WAGO 221 Lever Connectors       │
-                 │   (5-way: 1 input, 4 outputs)      │
-                 │                                    │
-                 │   + rail:  ├── Pico VSYS (fused)   │
-                 │             ├── Relay VCC (fused)   │
-                 │             ├── Humidifier (fused)  │
-                 │             └── Fan (fused)         │
-                 │                                    │
-                 │   - rail:  ├── Pico GND             │
-                 │             ├── Relay GND            │
-                 │             ├── Humidifier GND       │
-                 │             └── Fan GND              │
-                 └────────────────────────────────────┘
+                 ┌───────────────────────────────────┐
+                 │     WAGO 221 Lever Connectors     │
+                 │   (5-way: 1 input, 4 outputs)     │
+                 │                                   │
+                 │   + rail:  ├── Pico VSYS (fused)  │
+                 │             ├── Relay VCC (fused) │
+                 │             ├── Humidifier (fused)│
+                 │             └── Fan (fused)       │
+                 │                                   │
+                 │   - rail:  ├── Pico GND           │
+                 │             ├── Relay GND         │
+                 │             ├── Humidifier GND    │
+                 │             └── Fan GND           │
+                 └───────────────────────────────────┘
                              │
                  ┌───────────┼───────────┬──────────────┐
                  ▼           ▼           ▼              ▼

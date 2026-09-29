@@ -46,12 +46,12 @@ If the firmware is too old, the boot sequence prints a warning referring you her
 
 ### LED indicator
 
-This software allows minimal communication through the Pico's integrated LED. When the software starts executing, the LED will ALWAYS turn on. After that first flash, the possible LED statuses are:
+This software allows minimal communication through the Pico's integrated LED. When the software starts executing, the LED comes on briefly at initialisation, goes off while Wi-Fi is connecting, and comes on solid once the link is up; after that, the possible LED statuses are:
 
 | LED Pattern | Meaning |
 |-------------|---------|
-| OFF | Wi-Fi lost or not connected — attempting reconnection / booting |
-| SOLID | Wi-Fi connected, awaiting server announce |
+| OFF | Wi-Fi lost or not connected — also the runtime link-down state: the LED is cleared when the link drops and stays off while reconnecting |
+| SOLID | Wi-Fi connected, hub announcement in progress or failed — a unit that reaches Wi-Fi but never the hub stays lit |
 | HEARTBEAT (even blink) | Normal operation |
 | CONFIG ERROR (3 fast blinks, 1s pause) | config.json is malformed or has invalid values — check serial output for details |
 | SLOW DOUBLE-BLINK (200/200/200/800ms) | AP provisioning mode — awaiting Wi-Fi credentials |
