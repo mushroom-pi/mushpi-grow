@@ -126,6 +126,25 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
                         _v = pins[_k]
                         if isinstance(_v, bool) or not isinstance(_v, int) or not (1 <= _v <= 29):
                             return {"ok": False, "error": "pins." + _k + " must be int in 1..29"}, 400
+                # Reject updates that would leave two functions on one GPIO.
+                # Checked against a merged view (current mapping overlaid with
+                # this request's keys) BEFORE any mutation, so a rejected
+                # request leaves GPIO state and flash completely unchanged.
+                # Rules (mirrors the hub's setup-proxy validation):
+                # - re-assigning a device to the pin it already has is a no-op
+                #   and is allowed;
+                # - a pin freed by another device in the same request is free;
+                # - pre-existing duplicates this request does not touch pass —
+                #   only conflicts the request creates or perpetuates fail.
+                _changed = [k for k in ("dht", "humidifier", "fan", "heater") if k in pins]
+                _merged = dict(devices["pins"])
+                for _k in _changed:
+                    _merged[_k] = pins[_k]
+                for _k in _changed:
+                    _v = pins[_k]
+                    for _k2 in ("dht", "humidifier", "fan", "heater"):
+                        if _k2 != _k and _merged.get(_k2) == _v:
+                            return {"ok": False, "error": "GPIO " + str(_v) + " is already assigned to " + _k2}, 400
                 if "dht" in pins: sensor.remap(pins)
                 if "humidifier" in pins: io.remap("humidifier", pins)
                 if "fan" in pins: io.remap("fan", pins)

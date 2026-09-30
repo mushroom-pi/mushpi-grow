@@ -54,7 +54,7 @@ The rp2/CYW43 mDNS responder was half-wired for years: `mdns_resp_init()` opened
 | Onboard LED      | `LED`| Status indicator                                            |
 
 - `active_high` in `config.json` flips relay polarity. The `IO` class in `app/hw.py` handles this automatically — never toggle GPIO directly.
-- Pins can be remapped at runtime via `POST /setup` and are persisted to `config.json` (`pins`, `active_high` keys), surviving reboot.
+- Pins can be remapped at runtime via `POST /setup` and are persisted to `config.json` (`pins`, `active_high` keys), surviving reboot. A change that would leave two functions on one GPIO (after merging the partial update with the current mapping) is rejected with `400` before any remap or config write.
 
 ## Control Loop Logic
 

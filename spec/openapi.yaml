@@ -397,7 +397,7 @@ paths:
                   active_high:
                     type: boolean
         '400':
-          description: Invalid request body (bad pin values, non-dict pins, etc.)
+          description: Invalid request body (bad pin values, non-dict pins, or a GPIO already assigned to another device after merging with the current mapping, etc.)
           content:
             application/json:
               schema:
