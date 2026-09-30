@@ -120,11 +120,11 @@ The response `{"message":"Reboot initiated","type":"soft"}` returns immediately;
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0 or later** (GPL-3.0-or-later).
+This project is licensed under the **GNU General Public License v3.0** (GPL-3.0).
 
 Copyright (c) 2026 [Adriana Martín de Aguilera](https://www.amda.dev)
 
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License version 3 as published by the Free Software Foundation.
 
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
