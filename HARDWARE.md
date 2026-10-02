@@ -142,7 +142,7 @@ Concept diagrams (Mermaid) are produced by `mushpi-electronics` against this doc
 - Wiring diagram (pin-level): [mushpi-docs/hardware/wiring.mdx](https://github.com/mushroom-pi/mushpi-docs/blob/main/hardware/wiring.mdx)
 - System block diagram: [mushpi-docs/hardware/components.mdx](https://github.com/mushroom-pi/mushpi-docs/blob/main/hardware/components.mdx)
 
-No publisher-facing site URL has been recorded yet — the GitHub source is the honest reference until one is added to the site's `docs.json` or to `mushpi-ops/DEPLOYMENT.md`.
+No publisher-facing site URL has been recorded yet — the GitHub source is the honest reference until one is added to the site's `docs.json`.
 
 Key elements covered by the diagrams:
 - Pico 2W pinout (GP0 force-provision, GP4 DHT11, GP6–GP8 relays, VBUS / VSYS, 3V3 OUT)
