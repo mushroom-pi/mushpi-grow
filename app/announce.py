@@ -12,12 +12,48 @@ try:
 except ImportError:
     requests = None  # we'll raise a clear error on use
 
+# Registration path on the hub. This is firmware knowledge, not operator
+# configuration: config.json's hub_url carries the hub address only and the
+# firmware appends this path itself. It lives here because this module owns
+# how announcing is done.
+_ANNOUNCE_PATH = "/v1/pico-units/announce"
+
 
 def _ip(wlan):
     try:
         return wlan.ifconfig()[0]
     except:
         return None
+
+
+def _strip_trailing_slashes(s):
+    # Slice loop instead of str.removesuffix(): that method does not exist in
+    # MicroPython, so peel trailing "/" characters off the end one at a time.
+    while len(s) and s[-1] == "/":
+        s = s[:-1]
+    return s
+
+
+def announce_url(raw):
+    """
+    Resolve the full announce URL from the configured hub value.
+
+    config.json's "hub_url" is meant to carry the hub's address only (scheme,
+    host, port); the firmware appends _ANNOUNCE_PATH itself. A value that
+    already ends in the announce path is accepted unchanged, deliberately:
+    units flashed with the older full-endpoint form keep working without
+    being re-flashed. Surrounding whitespace and trailing slashes are
+    tolerated. Non-string or empty input yields "" (no announce target).
+    """
+    if not isinstance(raw, str):
+        return ""
+    base = _strip_trailing_slashes(raw.strip())
+    if not base:
+        return ""
+    if base[-len(_ANNOUNCE_PATH):] == _ANNOUNCE_PATH:
+        print("announce: hub_url already includes the announce path — using it as configured")
+        return base
+    return base + _ANNOUNCE_PATH
 
 
 def payload(wlan, extra=None):
@@ -51,6 +87,13 @@ def announce_once_blocking(cfg, wlan, io=None, extra=None, timeout_s=2):
         raise RuntimeError(
             "urequests not found. Upload urequests.py to /lib on the Pico.")
 
+    # Resolve the hub target from the configured address. Done before the
+    # Wi-Fi check so a misconfigured hub is visible even when the link is down.
+    target = announce_url(cfg.get("hub_url") if isinstance(cfg, dict) else None)
+    if not target:
+        print("announce: skipped (hub_url not configured)")
+        return False
+
     # Must have Wi-Fi & IP
     if not wlan or not (hasattr(wlan, "isconnected") and wlan.isconnected()) or not _ip(wlan):
         return False
@@ -75,7 +118,7 @@ def announce_once_blocking(cfg, wlan, io=None, extra=None, timeout_s=2):
         body_str = ujson.dumps(body)
         secret = cfg.get("hub_secret", "") if isinstance(cfg, dict) else ""
         r = requests.post(
-            cfg["hub_url"],
+            target,
             data=body_str,
             headers={
                 "Content-Type": "application/json",
@@ -89,7 +132,9 @@ def announce_once_blocking(cfg, wlan, io=None, extra=None, timeout_s=2):
         if ok:
             print("announce: ok")
         else:
-            print("announce: fail (status {})".format(code))
+            # Include the resolved target so a wrong address (which yields a
+            # "not found" from the hub) is distinguishable from a hub outage.
+            print("announce: fail (status {}) target {}".format(code, target))
     except Exception as e:
         print("announce: exception:", e)
         ok = False

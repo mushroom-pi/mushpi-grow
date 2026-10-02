@@ -44,6 +44,19 @@ If the firmware is too old, the boot sequence prints a warning referring you her
 **Download v1.26.0 firmware**: [RPI_PICO2_W-20250809-v1.26.0.uf2](https://micropython.org/resources/firmware/RPI_PICO2_W-20250809-v1.26.0.uf2)  
 **All releases**: https://micropython.org/download/RPI_PICO2_W/
 
+### Hub address (`hub_url`)
+
+`config.json`'s `hub_url` is the hub's **address only** — scheme, host and port:
+
+```json
+"hub_url": "http://192.168.1.50:3000"
+```
+
+- Do **not** append an API path; the unit adds the registration path (`/v1/pico-units/announce`) itself.
+- Units already flashed with the full endpoint URL keep working — a value that already ends in the announce path is used unchanged.
+- Surrounding whitespace and trailing slashes are ignored.
+- An empty value is valid: the unit runs standalone (no hub) and prints `announce: skipped (hub_url not configured)` on the serial console at announce time.
+
 ### LED indicator
 
 This software allows minimal communication through the Pico's integrated LED. When the software starts executing, the LED comes on briefly at initialisation, goes off while Wi-Fi is connecting, and comes on solid once the link is up; after that, the possible LED statuses are:

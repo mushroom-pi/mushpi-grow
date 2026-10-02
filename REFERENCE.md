@@ -29,7 +29,7 @@ Topics covered here: startup sequence · firmware/mDNS requirements · hardware 
     - `main()` async task:
       - `start_metrics()` — launches background event-loop utilisation meter.
       - Spawns `announce_then_retry_once()` — tries POST to hub; if it fails, waits 60 s and retries once.
-      - **Announce internals**: `announce_then_retry_once()` wraps `announce_once_blocking()` (one-shot urequests POST, body built by `payload()`); each attempt blocks the event loop up to `timeout_s` (default 2 s).
+      - **Announce internals**: `announce_then_retry_once()` wraps `announce_once_blocking()` (one-shot urequests POST, body built by `payload()`); each attempt blocks the event loop up to `timeout_s` (default 2 s). The POST target is resolved by `announce_url(cfg["hub_url"])`, which appends `_ANNOUNCE_PATH` to the configured hub address instead of using the value verbatim.
       - **`announce_then_retry_once` is re-entrant**: safe to call at runtime (not just boot). The caller must cancel any prior announce task before spawning a new one to avoid overlapping heartbeat/LED control.
       - Spawns `control_loop()` — hysteresis loop; also feeds the WDT every 200ms via its chunked-sleep loop. If the loop hangs or dies, the WDT expires → hard reboot → WiFi reconnects + re-announces.
       - Spawns `wifi_watchdog_loop()` — monitors link health; on drop, force-clears the LED, reconnects with backoff (5/10/30/60 s, then caps at 60 s — `_BACKOFF_MS`); on link-up, re-announces (see §Wi-Fi watchdog & runtime re-announce).
@@ -102,7 +102,7 @@ Details:
       {"ssid": "FallbackNetwork", "password": "secret2"}
     ]
   },
-  "hub_url": "http://<hub_ip>:3000/v1/pico-units/announce",
+  "hub_url": "http://<hub_ip>:3000",
   "hub_secret": "mushpi-dev-secret",
   "device_name": "pico-unit1",
   "api_port": 5000,
@@ -114,7 +114,7 @@ Details:
 ```
 
 - `device_name` must match the `handle` field in `mushpi-server`'s `PicoUnit` entity.
-- `hub_url` must include the server's versioned announce path — the `/v1/` prefix (see example above); there is no unversioned announce endpoint.
+- `hub_url` carries the hub's **address only** — scheme, host and port (see example above). The unit appends `/v1/pico-units/announce` itself, via the `_ANNOUNCE_PATH` constant in `app/announce.py`. Surrounding whitespace and trailing slashes are tolerated, and a value that already ends in the announce path is used unchanged, so units flashed with the older full-endpoint form keep working without being re-flashed. An empty value is valid: the unit runs standalone and prints `announce: skipped (hub_url not configured)`.
 - `hub_secret` must match the server's `PICO_ANNOUNCE_SECRET` env var. Sent as `X-Pico-Secret` header on every announcement POST.
 - `config.json` is gitignored — the local working copy holds the real credentials (untracked, not committed).
 - `config_loader.py` provides defaults for all fields **except `hub_secret`** (which has no default — treated as optional `""` by the validator). Example defaults: device_name `"PicoDevice"`, period_s `10`.
