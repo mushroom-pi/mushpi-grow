@@ -11,7 +11,7 @@ Topics covered here: startup sequence · firmware/mDNS requirements · hardware 
 1. `IO()` — initialises GPIO, turns onboard LED ON.
 2. `DHTReader()` — initialises DHT11 sensor.
 3. `load_config()` — reads `config.json` with shallow merge over defaults. Returns `(cfg, load_errors)` — catches malformed JSON and non-object top-level gracefully.
-4. `validate_config(cfg)` — validates all fields (device_name, api_port, hub_url, wifi, control) for type and range correctness. Accumulates all errors. If any errors (load or validation): prints them to serial, then enters terminal `error_blink_blocking()` state (3 fast blinks + pause forever). Device does NOT start WiFi, control loop, or server.
+4. `validate_config(cfg)` — validates all fields (device_name, api_port, hub_url, wifi, control, pins, reboot) for type and range correctness, and rejects duplicate GPIO assignments: no two roles may share a pin in the **effective** `pins` map (config.json merged over defaults by `load_config()` — `_append_duplicate_gpio_errors`). Accumulates all errors. If any errors (load or validation): prints them to serial, then enters terminal `error_blink_blocking()` state (3 fast blinks + pause forever). Device does NOT start WiFi, control loop, or server.
 5. **Apply persisted GPIO mapping** — reads `pins` and `active_high` from `cfg`, applies them to `state.devices`, then calls `sensor.__init__()` and `io.__init__()` to re-initialise GPIO on the persisted pin assignments and polarity. Runs after validation so bad persisted data can't crash re-init; the prior default-constructed `io`/`sensor` instances are briefly double-inited (harmless — relays are OFF).
 6. `init_uptime()` — reads `uptime.json` sentinel first: if `pending_type` is set ("scheduled"/"soft"/"hard"), that's the reboot reason (preserving cumulative for scheduled/soft, resetting for hard). Falls back to `machine.reset_cause()` only when no sentinel exists (unexpected reboots: WDT → "watchdog", PWRON → "power_on"). Writes fresh `uptime.json` to flash.
 7. `state.init_system_info(cfg)` — caches board/MicroPython/build metadata.
@@ -55,6 +55,7 @@ The rp2/CYW43 mDNS responder was half-wired for years: `mdns_resp_init()` opened
 
 - `active_high` in `config.json` flips relay polarity. The `IO` class in `app/hw.py` handles this automatically — never toggle GPIO directly.
 - Pins can be remapped at runtime via `POST /setup` and are persisted to `config.json` (`pins`, `active_high` keys), surviving reboot. A change that would leave two functions on one GPIO (after merging the partial update with the current mapping) is rejected with `400` before any remap or config write.
+- The **boot** duplicate rule (`validate_config()` / `_append_duplicate_gpio_errors`) is separate and stricter than the `POST /setup` merged-view rule: any two roles sharing a GPIO in the effective (default-merged) `pins` map is fatal, with no partial-update allowances — there is no live mapping at boot to merge against. Do not "unify" the two rule sets; the setup rule's allowances (same-pin re-assign, within-request pin swap) must stay. The setup rule is semantics-locked across firmware, `mushpi-mock` and the server's setup proxy; the boot rule exists in the firmware only.
 
 ## Control Loop Logic
 
@@ -119,7 +120,7 @@ Details:
 - `config.json` is gitignored — the local working copy holds the real credentials (untracked, not committed).
 - `config_loader.py` provides defaults for all fields **except `hub_secret`** (which has no default — treated as optional `""` by the validator). Example defaults: device_name `"PicoDevice"`, period_s `10`.
 - `networks` is optional. If present, `connect_wifi()` tries each in order; first success wins. The primary `ssid`/`password` pair is tried first.
-- `pins` is a dict mapping device roles to GPIO pin numbers (`dht`, `humidifier`, `fan`, `heater`). Each value must be an integer in 1–29 (GP0 is reserved for force-provision). Persisted by `POST /setup`; falls back to defaults if missing.
+- `pins` is a dict mapping device roles to GPIO pin numbers (`dht`, `humidifier`, `fan`, `heater`). Each value must be an integer in 1–29 (GP0 is reserved for force-provision) and every role needs a **distinct** GPIO — a collision is a fatal boot error, including one created by a partial `pins` object colliding with a default left in place (e.g. `{"pins":{"humidifier":4}}` duplicates the default `dht: 4`). Correction means uploading a corrected `config.json`. Persisted by `POST /setup`; falls back to defaults if missing.
 - `active_high` is a boolean controlling relay polarity (`false` = active-low, the safe default for common relay modules). Persisted by `POST /setup`; falls back to `false` if missing.
 - `reboot` controls the daily scheduled soft-reboot + NTP sync (`enabled`, `hour`, `minute`, `ntp_host`, `ntp_tz_offset_hours`). Disabled by default (`enabled: false`).
 - `control.hyst_temp` is **deprecated / vestigial** — `app/control.py` never reads it (heater control uses `temperature_deadband`). It is still present in the defaults (`config_loader.py`) and validated by `config_validator.py` (int, 0–50), so it is accepted and persisted, but has no effect.
@@ -130,7 +131,7 @@ Details:
 - **SOLID ON**: WiFi connected but hub announcement failed (or still in progress).
 - **BLINKING** (heartbeat): WiFi connected and hub announcement succeeded.
 - **PROVISIONING** (slow double-blink): 200ms on / 200ms off / 200ms on / 800ms off — AP mode active, awaiting Wi-Fi credentials via web form.
-- **CONFIG ERROR** (3 fast blinks): 150ms on / 150ms off × 3, 1000ms pause, repeating — `config.json` is malformed or has invalid values; check serial console for details. Terminal state — the device does not start any services.
+- **CONFIG ERROR** (3 fast blinks): 150ms on / 150ms off × 3, 1000ms pause, repeating — `config.json` is malformed, has invalid values, or assigns the same GPIO to two device roles; check serial console for details (duplicates name the colliding GPIO and both `pins.<role>` names). Terminal state — the device does not start any services.
 
 ## Coding Rules (Gotchas)
 

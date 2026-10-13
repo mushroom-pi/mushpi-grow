@@ -1,3 +1,7 @@
+# Device roles in canonical order (same tuple as main.py and app/api.py).
+PIN_ROLES = ("dht", "humidifier", "fan", "heater")
+
+
 def _require_int(path, val, errors):
     if isinstance(val, bool) or not isinstance(val, int):
         errors.append("ERROR: " + path + " must be an integer, got " + repr(val))
@@ -15,6 +19,23 @@ def _require_str(path, val, errors):
 def _range_check(path, val, lo, hi, errors):
     if val < lo or val > hi:
         errors.append("ERROR: " + path + " must be between " + str(lo) + " and " + str(hi) + ", got " + str(val))
+
+
+def _append_duplicate_gpio_errors(pins, errors):
+    # Fatal boot rule: no two device roles may share a GPIO in the
+    # effective (default-merged) pins map. Separate from and stricter than
+    # the POST /setup merged-view rule — see REFERENCE.md §Hardware Pins.
+    # Values that failed the int type check are skipped so garbage is not
+    # double-reported and bools cannot false-positive against int 1/0.
+    seen = []
+    for role in PIN_ROLES:
+        v = pins.get(role)
+        if isinstance(v, bool) or not isinstance(v, int):
+            continue
+        for earlier, ev in seen:
+            if ev == v:
+                errors.append("ERROR: GPIO " + str(v) + " is assigned to both pins." + earlier + " and pins." + role + " — each device needs a distinct GPIO")
+        seen.append((role, v))
 
 
 def validate_config(cfg):
@@ -143,6 +164,7 @@ def validate_config(cfg):
                     v = pins[k]
                     if _require_int("pins." + k, v, errors):
                         _range_check("pins." + k, v, 1, 29, errors)
+            _append_duplicate_gpio_errors(pins, errors)
 
     # active_high: optional, but if present must be bool
     if "active_high" in cfg:

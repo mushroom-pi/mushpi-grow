@@ -66,7 +66,7 @@ This software allows minimal communication through the Pico's integrated LED. Wh
 | OFF | Wi-Fi lost or not connected — also the runtime link-down state: the LED is cleared when the link drops and stays off while reconnecting |
 | SOLID | Wi-Fi connected, hub announcement in progress or failed — a unit that reaches Wi-Fi but never the hub stays lit |
 | HEARTBEAT (even blink) | Normal operation |
-| CONFIG ERROR (3 fast blinks, 1s pause) | config.json is malformed or has invalid values — check serial output for details |
+| CONFIG ERROR (3 fast blinks, 1s pause) | config.json is malformed, has invalid values, or assigns the same GPIO to two device roles — check serial output for details (duplicates name the colliding GPIO and both `pins.<role>` names) |
 | SLOW DOUBLE-BLINK (200/200/200/800ms) | AP provisioning mode — awaiting Wi-Fi credentials |
 
 ### Provisioning (First-Time Setup or Wi-Fi Recovery)
