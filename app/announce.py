@@ -1,6 +1,5 @@
 from app.metrics import system_snapshot
 from app.state import get_system_info
-import usocket
 import uasyncio as asyncio
 import ujson
 
@@ -78,10 +77,11 @@ def payload(wlan, extra=None):
     return data
 
 
-def announce_once_blocking(cfg, wlan, io=None, extra=None, timeout_s=2):
+def announce_once_blocking(cfg, wlan, io=None, extra=None):
     """
-    One-shot POST to hub using urequests. Blocking (for up to timeout_s).
-    Returns True on 2xx, False otherwise.
+    One-shot POST to hub using urequests. Blocking, bounded only by the HTTP
+    client's own fixed per-socket timeout (urequests hardcodes 5 s); there is
+    no configurable announce timeout. Returns True on 2xx, False otherwise.
     """
     if requests is None:
         raise RuntimeError(
@@ -100,12 +100,6 @@ def announce_once_blocking(cfg, wlan, io=None, extra=None, timeout_s=2):
 
     # Build payload
     body = payload(wlan, extra)
-
-    # Set a small global socket timeout for this call; restore after
-    try:
-        usocket.setdefaulttimeout(timeout_s)
-    except:
-        pass
 
     ok = False
     try:
@@ -138,26 +132,22 @@ def announce_once_blocking(cfg, wlan, io=None, extra=None, timeout_s=2):
     except Exception as e:
         print("announce: exception:", e)
         ok = False
-    finally:
-        try:
-            # Restore default (blocking) timeout
-            usocket.setdefaulttimeout(None)
-        except:
-            pass
 
     return ok
 
 
-async def announce_then_retry_once(cfg, wlan, io=None, delay_s=60, timeout_s=2, stop_event=None):
+async def announce_then_retry_once(cfg, wlan, io=None, delay_s=60, stop_event=None):
     """
-    Try once now (blocking up to timeout_s). If it fails, wait delay_s and try once more.
+    Try once now (blocking; see announce_once_blocking for the timeout).
+    If it fails, wait delay_s and try once more.
     Returns True if any attempt succeeded.
-    NOTE: Each attempt blocks the event loop briefly (<= timeout_s).
+    NOTE: Each attempt blocks the event loop for the HTTP client's fixed
+    socket timeout — there is no configurable announce timeout.
     """
     if io and hasattr(io, "led_solid"):
         io.led_solid(True)
 
-    ok = announce_once_blocking(cfg, wlan, io, timeout_s=timeout_s)
+    ok = announce_once_blocking(cfg, wlan, io)
     if ok:
         if io:
             io.led_flash(cycles=2, period_ms=120)
@@ -173,7 +163,7 @@ async def announce_then_retry_once(cfg, wlan, io=None, delay_s=60, timeout_s=2, 
         remaining -= 1
 
     # SECOND attempt: handle LED just like the first
-    ok = announce_once_blocking(cfg, wlan, timeout_s=timeout_s)
+    ok = announce_once_blocking(cfg, wlan)
     if ok:
         if io:
             io.led_flash(cycles=2, period_ms=120)

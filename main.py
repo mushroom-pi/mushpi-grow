@@ -88,7 +88,7 @@ async def main():
         asyncio.create_task(reboot_scheduler_loop(
             cfg, wlan, io, sensor, stop_event=stop_event))
         asyncio.create_task(announce_then_retry_once(
-            cfg, wlan, io, delay_s=60, timeout_s=2, stop_event=stop_event))
+            cfg, wlan, io, delay_s=60, stop_event=stop_event))
         asyncio.create_task(control_loop(
             cfg, wlan, io, sensor, stop_event=stop_event, wdt=wdt))
         asyncio.create_task(wifi_watchdog_loop(

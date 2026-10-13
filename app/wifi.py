@@ -162,7 +162,7 @@ async def wifi_watchdog_loop(cfg, wlan, io=None, stop_event=None):
                     _announce_task.cancel()
                 _announce_task = asyncio.create_task(
                     announce_then_retry_once(cfg, wlan, io,
-                                             delay_s=60, timeout_s=2,
+                                             delay_s=60,
                                              stop_event=stop_event))
                 break
 
