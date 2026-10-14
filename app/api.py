@@ -16,6 +16,12 @@ try:
 except OSError:
     _PROVISIONING_HTML = '<html><body><h1>MushPi</h1><p>Error loading provisioning form.</p></body></html>'
 
+try:
+    with open('app/unit.html', 'r') as f:
+        _UNIT_HTML = f.read()
+except OSError:
+    _UNIT_HTML = '<html><body><h1>MushPi</h1><p>Error loading unit page.</p></body></html>'
+
 def make_app(cfg, wlan, io, sensor, mode="sta"):
     app = Microdot()
     Response.default_content_type = 'application/json'
@@ -66,6 +72,21 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
         info = uptime.get_uptime_info()
         info["scheduled_reboot"] = _scheduled_reboot_info()
         return info
+
+    def _unit_page():
+        """Render the on-device unit page. MODE is replaced BEFORE DEVNAME so
+        a device_name that literally contains the token can never be
+        re-scanned by a later pass (each .replace() only touches the string
+        that exists at that moment)."""
+        html = _UNIT_HTML.replace("MODE", mode).replace("DEVNAME", cfg.get("device_name", "pico"))
+        return Response(html, status_code=200, headers={'Content-Type': 'text/html'})
+
+    @app.get('/ui')
+    def _ui(req):
+        # Always HTML, in both modes: the AP variant renders a view-only
+        # provisioning page (banner + no controls), the STA variant the full
+        # status-and-control page.
+        return _unit_page()
 
     @app.get('/ping')
     def _pin(req):
@@ -314,6 +335,15 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
         if mode == "ap":
             html = _PROVISIONING_HTML.replace("DEVNAME", cfg.get("device_name", "pico"))
             return Response(html, status_code=200, headers={'Content-Type': 'text/html'})
+        # Content negotiation for the unit page, strict on purpose: HTML only
+        # when the client asks for text/html AND does not mention
+        # application/json at all. The hub's axios poll sends
+        # "application/json, text/plain, */*" and must keep getting JSON;
+        # browsers send text/html without application/json and get the page.
+        # Microdot's Headers lookup is case-insensitive.
+        accept = req.headers.get('Accept') or ''
+        if 'text/html' in accept and 'application/json' not in accept:
+            return _unit_page()
         return {
             "system": get_system_info(),
             "firmware_version": _SOFTWARE_VERSION,

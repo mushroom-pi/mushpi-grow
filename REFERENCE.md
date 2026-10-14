@@ -2,7 +2,7 @@
 
 Long-tail details and gotchas. **Load only when the task touches these areas** — do not read on every spawn. The always-loaded [`AGENTS.md`](./AGENTS.md) holds the module map, deploy steps, REST API table, shared-state rules, and core coding rules.
 
-Topics covered here: startup sequence · firmware/mDNS requirements · hardware pins · control-loop algorithm · `config.json` schema · AP provisioning · LED states · Wi-Fi watchdog · announce transport & watchdog budgets · MicroPython quirks · RAM/gc · persistence · version constants · shared-state pitfalls · REST API notes (CORS preflight).
+Topics covered here: startup sequence · firmware/mDNS requirements · hardware pins · control-loop algorithm · `config.json` schema · AP provisioning · LED states · Wi-Fi watchdog · announce transport & watchdog budgets · MicroPython quirks · RAM/gc · persistence · version constants · shared-state pitfalls · REST API notes (unit page, CORS preflight).
 
 ---
 
@@ -84,7 +84,7 @@ Details:
 - SSID: `mushpi-provision-XXXX` (XXXX = last 4 hex of AP MAC), open network
 - IP: `192.168.4.1`, port `5000`
 - LED: slow double-blink (200/200/200/800ms)
-- `GET /` returns an HTML setup form
+- `GET /` returns an HTML setup form; `GET /ui` returns the unit status page in a **view-only** provisioning variant (banner, controls locked, no reboot card — see §Unit page)
 - `POST /provision` with `{"wifi":{"ssid":"...","password":"..."}}` writes `config.json` and reboots
 - CORS headers are enabled on all responses
 - mDNS does NOT resolve in AP mode — use the IP directly
@@ -192,6 +192,13 @@ Details:
 - **Manual-override writer**: `POST /outputs` (`_setoutputs` in `app/api.py`) is the one sanctioned exception to the IO-helpers-only rule — it writes GPIO via `io.write(pin, bool)`, then sets `status[...]` and the min-runtime markers itself. Any other code writing these keys is a bug.
 
 ## REST API notes
+
+### Unit page (`app/unit.html`, `GET /ui`)
+
+- **What it is.** The unit serves its own self-documenting status-and-control page at `GET /ui`, HTML in both modes (AP = view-only provisioning variant with a banner). `app/api.py` reads `app/unit.html` once at import into `_UNIT_HTML` (OSError fallback to an error stub — same pattern as `provision.html`) and injects the `MODE` (`"sta"`/`"ap"`) and `DEVNAME` placeholders. The page is hand-authored HTML + inline CSS + vanilla JS: no build step, no CDN — it must work offline on the unit's own network.
+- **Placeholder injection is load-bearing.** `_UNIT_HTML.replace("MODE", mode).replace("DEVNAME", name)` — MODE first, so a `device_name` containing the literal token can never be re-scanned. Each token occurs **exactly once** in the file (`var unitMode = "MODE";` / `var devName = "DEVNAME";`, identifiers deliberately mixed-case); any second uppercase occurrence would also be replaced. A case-sensitive grep for both tokens must return 1 each.
+- **`GET /` content negotiation** (STA path only) is a strict predicate, not the usual "html beats */*" heuristic: `'text/html' in accept and 'application/json' not in accept` → the unit page; **everything else → JSON**. The hub's axios poll sends `Accept: application/json, text/plain, */*` and must keep getting JSON — any Accept mentioning `application/json` gets JSON. Microdot's `Headers` lookup is case-insensitive, so the header name's case is free. The page's own STA fetch pins `Accept: application/json` explicitly; in AP it composes the same view from `GET /system /health /sensors /outputs /setpoints /control /setup` (there `GET /` is the provisioning form, so it is never its own data source).
+- **RAM budget.** `unit.html` is ~46 KB; `_UNIT_HTML` lives in the heap for the whole session and every page request runs two `.replace()` passes — roughly 2 × 46 KB transient copies per `/ui` (or negotiated `/`) request, reclaimed by the `after_request` `gc.collect()`. Bench-check the heap before/after page loads (hand-off item).
 
 ### CORS preflight
 

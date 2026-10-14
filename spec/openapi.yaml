@@ -4,10 +4,15 @@ info:
   version: 0.8.4
   description: >-
     REST API served by every MushPi Pico growing unit on port 5000.
-    In STA mode all endpoints return JSON. In AP provisioning mode
-    (open network, 192.168.4.1) GET / returns an HTML setup form
-    (text/html) instead of JSON; POST /provision accepts Wi-Fi
-    credentials, writes config.json, and reboots the unit into STA mode.
+    In STA mode every endpoint returns JSON except GET /ui, which serves
+    the unit's self-documenting status-and-control page (text/html);
+    GET / also answers a browser with that page via content negotiation
+    (Accept containing text/html but not application/json) while API
+    clients keep receiving JSON. In AP provisioning mode (open network,
+    192.168.4.1) GET / returns an HTML provisioning setup form
+    (text/html) instead of JSON, GET /ui serves a view-only variant of
+    the unit page; POST /provision accepts Wi-Fi credentials, writes
+    config.json, and reboots the unit into STA mode.
     On boot (and on runtime re-announce) the unit POSTs its presence to
     the hub server — URL from config.json `hub_url`, authenticated via
     the `X-Pico-Secret` header. That announce payload is not a path
@@ -688,9 +693,15 @@ paths:
     get:
       summary: Get all the system's current parameters
       description: >-
-        In STA mode returns a full JSON snapshot of system state.
-        In AP provisioning mode returns an HTML setup form
-        (Content-Type: text/html) — see POST /provision.
+        In STA mode returns a full JSON snapshot of system state. Content negotiation (STA
+        path only, strict predicate): when the request's Accept header
+        contains text/html AND does not contain application/json, the
+        unit's status-and-control page (Content-Type: text/html, same as
+        GET /ui) is returned instead of JSON. Clients whose Accept
+        mentions application/json — the hub's axios poll sends
+        "application/json, text/plain, */*" — always receive JSON. In AP
+        provisioning mode returns an HTML setup form (Content-Type:
+        text/html) — see POST /provision.
       responses:
         '200':
           description: >-
@@ -889,7 +900,32 @@ paths:
             text/html:
               schema:
                 type: string
-                description: HTML provisioning form (AP mode only)
+                description: >-
+                  HTML provisioning form (AP mode) or the unit
+                  status-and-control page (STA mode when the browser
+                  Accept predicate above is met) — the page is the same
+                  response shape as GET /ui.
+      tags:
+        - monitoring
+  /ui:
+    get:
+      summary: Unit status and control page
+      description: >-
+        Self-documenting HTML page served by the unit itself, always
+        text/html in both operating modes. STA mode: full status and
+        control (identity, board condition, climate and outputs,
+        controls, devices, PIN mapping, hub state, reboot). AP
+        provisioning mode: a view-only variant with a provisioning
+        banner. The file is hand-authored (app/unit.html) and served
+        from firmware memory; it loads no external resources and works
+        fully offline.
+      responses:
+        '200':
+          description: HTML unit page
+          content:
+            text/html:
+              schema:
+                type: string
       tags:
         - monitoring
   /reboot:

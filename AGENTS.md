@@ -36,6 +36,7 @@ mushpi-grow/
 │   ├── uptime.py         # Cumulative uptime tracking, boot-reason classification, uptime.json persistence
 │   ├── reboot_scheduler.py # Daily scheduled soft-reboot (STA mode), NTP sync
 │   ├── provision.html   # HTML form served in AP provisioning mode
+│   ├── unit.html        # Status/control page served at GET /ui (MODE/DEVNAME injected at import) → REFERENCE §Unit page
 │   └── shutdown.py      # graceful_shutdown() + reboot() + soft_reboot()
 ├── spec/
 │   └── openapi.yaml     # Hand-maintained OpenAPI 3.0 spec (committed)
@@ -47,7 +48,8 @@ mushpi-grow/
 
 | Method     | Path        | Notes                                                  |
 |------------|-------------|--------------------------------------------------------|
-| GET        | `/`         | STA: full JSON snapshot. AP: HTML provisioning form. CORS on all responses. |
+| GET        | `/`         | STA: full JSON snapshot; a browser `Accept` (text/html without application/json) gets the unit page instead. AP: HTML provisioning form. CORS on all responses. |
+| GET        | `/ui`       | On-device status & control page — HTML in both modes; AP serves a view-only provisioning variant → REFERENCE §Unit page |
 | GET        | `/ping`     | Liveness (empty 200)                                   |
 | GET        | `/health`   | RAM, FS, Wi‑Fi RSSI, MCU temp, loop util %; uptime twice — `uptime_s` plus the `uptime` object |
 | GET        | `/system`   | Board, MicroPython version, software version, Wi‑Fi IP/MAC |
