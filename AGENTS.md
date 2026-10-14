@@ -2,35 +2,35 @@
 
 MicroPython firmware for Raspberry Pi Pico 2W. Controls humidity and temperature via hysteresis, serves a REST API on `api_port` (default 5000), and announces itself to a central hub on boot.
 
-> **Reference**: long-tail details (startup sequence, firmware/mDNS requirements, hardware pins, control-loop algorithm, `config.json` schema, AP provisioning, LED states, MicroPython quirks, RAM/gc, persistence) live in [`REFERENCE.md`](./REFERENCE.md). Load it **only when the task touches those areas** — do not read it on every spawn.
+> **Reference**: long-tail details (startup sequence, mDNS, hardware pins, control-loop algorithm, `config.json` schema, AP provisioning, LED states, MicroPython quirks, RAM/gc, persistence) live in [`REFERENCE.md`](./REFERENCE.md). Load it **only when the task touches those areas** — not on every spawn.
 
 ## Build, Lint, Test
 
 There are no traditional build or test commands — this is plain MicroPython uploaded directly to the Pico:
 
-- Deploy via the **MicroPico** VSCode extension (`paulober.pico-w-go` in `.vscode/extensions.json`). Upload all `.py` files, `.html` files (e.g. `app/provision.html`), and `config.json` to the Pico's flash.
-- Required third-party libs go in `/lib/` on the device: `microdot.py`, `urequests.py` (present in `lib/` locally but gitignored — not tracked in git).
-- `_SOFTWARE_VERSION` in `app/state.py` is the firmware version's single source of truth (`GET /system`, `GET /`). Bump only on release (`main`), never during `dev`; keep `spec/openapi.yaml` `info.version` and the mock in sync. `_API_VERSION` (same file) is the Pico↔Server contract generation — bump only on breaking changes, not additive; it alone may move on `dev`, but then `_SOFTWARE_VERSION` needs ≥ a MINOR bump.
+- Deploy via the **MicroPico** VSCode extension (`paulober.pico-w-go`) — upload `.py`, `.html` and `config.json` to flash; see README §Setup.
+- Required third-party libs go in `/lib/` on the device: `microdot.py` (present in `lib/` locally but gitignored — not tracked in git). The announce uses the standard socket stack only — no HTTP client library is required.
+- `_SOFTWARE_VERSION` (`app/state.py`) is the firmware version's single source of truth (`GET /system`, `GET /`); bump only on release (`main`), keeping `spec/openapi.yaml` `info.version` and the mock in sync. `_API_VERSION` (same file) is the Pico↔Server contract generation — bump only on breaking changes, and any `dev` bump needs a matching ≥ MINOR `_SOFTWARE_VERSION` bump.
 
 ## Project Structure
 
 ```
 mushpi-grow/
-├── main.py              # Entry point — wires everything together
+├── main.py              # Entry point — wires everything together; boot-path hub resolve; WDT armed before tasks
 ├── config.json          # WiFi, hub URL, device name, control params (gitignored)
 ├── README.md           # Setup + deployment instructions
 ├── HARDWARE.md         # Canonical BOM, pin map, wiring, power (maintained by mushpi-electronics)
 ├── LICENSE             # GPL-3.0 (verbatim FSF text)
-├── .vscode/ + .micropico # MicroPico deploy tooling (tracked) — sync/upload file types, Pylance stub paths, ext recommendations
+├── .vscode/ + .micropico # MicroPico deploy tooling (tracked)
 ├── app/
 │   ├── state.py         # Shared mutable dicts (status, setpoints, devices)
 │   ├── hw.py            # IO class — GPIO init, relay control, LED heartbeat
 │   ├── sensor.py        # DHTReader — reads DHT11, updates status
-│   ├── control.py       # control_loop() — hysteresis-based async coroutine
-│   ├── announce.py      # announce_then_retry_once() — POSTs presence to hub (boot + runtime re-announce); idempotent/re-invocable
+│   ├── control.py       # control_loop() — hysteresis-based async coroutine; the only watchdog feed site (fed via `wdt=`)
+│   ├── announce.py      # announce_then_retry_once() — POSTs presence to hub; spawned only at boot, retries forever with backoff; resolves the hub name at boot only (`presolve_boot_hub()`)
 │   ├── api.py           # Microdot REST API (port `api_port`)
 │   ├── metrics.py       # system_snapshot() — RAM, FS, Wi‑Fi RSSI, MCU temp, uptime, loop util
-│   ├── wifi.py          # connect_wifi() (blocking boot connect), reconnect_once_async() (async reconnect), wifi_watchdog_loop() (link monitor with backoff; triggers re-announce on link-up → REFERENCE §Wi-Fi watchdog)
+│   ├── wifi.py          # connect_wifi() (blocking boot connect), reconnect_once_async() (async reconnect), wifi_watchdog_loop() (link monitor with backoff; no announce responsibility → REFERENCE §Wi-Fi watchdog)
 │   ├── config_loader.py # load_config() + save_config() — atomic config read/write
 │   ├── config_validator.py # validate_config() — boot-time config field validation
 │   ├── uptime.py         # Cumulative uptime tracking, boot-reason classification, uptime.json persistence
@@ -40,8 +40,7 @@ mushpi-grow/
 ├── spec/
 │   └── openapi.yaml     # Hand-maintained OpenAPI 3.0 spec (committed)
 └── lib/
-    ├── microdot.py      # Microdot async web framework (gitignored — upload to device /lib/)
-    └── urequests.py     # MicroPython HTTP client (gitignored — upload to device /lib/)
+    └── microdot.py      # Microdot async web framework (gitignored — upload to device /lib/); no module imports urequests any more
 ```
 
 ## REST API (`api_port`, default 5000)
@@ -66,22 +65,23 @@ mushpi-grow/
 - `app/state.py` exports mutable dictionaries: `status`, `setpoints`, `devices`.
 - **Always mutate in place** — never reassign these module-level names.
 - `_system_info` is cached (built once, read many times).
-- **Relay-state keys must match exactly**: `status` keys (`fan`, `humidifier`, `heater`) must match `devices["pins"]` and the JSON names in `GET /` (`outputs.*`) and `GET /outputs`. The `IO` helpers (`hum_on()`, `fan_on()`, `heat_on()`, …) are the **only** writers of these keys, with one sanctioned exception: `POST /outputs` (`_setoutputs` in `app/api.py`), which is the documented manual-override path — it drives GPIO via the generic `io.write(pin, bool)` helper, then sets `status[...]` itself and calls `mark_relay_on()`/`mark_relay_off()` (from `app/control.py`) so min-runtime tracking stays consistent. Any *other* code writing these keys outside an `IO` helper is a bug. A key typo (e.g. `heat` vs `heater`) silently desyncs: the GPIO toggles but `status` stays stale, so the server always polls `false`.
-- **No GPIO read-back**: relay state in the API responses comes from the cached `status` dict, not from live GPIO reads. The dict keys are the single source of truth — keep them correct.
-- **Never snapshot `status[...]` into module-level dicts at import time** — always read from `status` live inside handlers. Module-level snapshots capture initial values and never update.
+- **Relay-state keys must match exactly**: `status` keys (`fan`, `humidifier`, `heater`) must match `devices["pins"]` and the JSON names in `GET /` (`outputs.*`) and `GET /outputs`. The `IO` helpers (`hum_on()`, `fan_on()`, `heat_on()`, …) are the **only** writers of these keys, with one sanctioned exception: `POST /outputs` (`_setoutputs` in `app/api.py`), the manual-override path — it writes GPIO via `io.write(pin, bool)` then sets `status[...]` and the min-runtime markers itself. Any other code writing these keys is a bug. A key typo (`heat` vs `heater`) silently desyncs: the GPIO toggles but `status` stays stale, so the server always polls `false`.
+- **No GPIO read-back**: API relay state comes from the cached `status` dict, never live GPIO reads — those keys are the single source of truth.
+- **Never snapshot `status[...]` into module-level dicts at import time** — read from `status` live inside handlers; a snapshot captures initial values and never updates.
 
 ## Coding Rules
 
 - **No type hints** — MicroPython support is limited; CPython type annotations are stripped before upload.
 - **Never use blocking calls** inside async tasks; use `await asyncio.sleep_ms()`.
-- **WiFi runtime operations must be async**: the blocking `connect_wifi()` is boot-only and must never be called from a running task. Runtime reconnect/monitoring uses `reconnect_once_async()` and `wifi_watchdog_loop()`, which poll with `await asyncio.sleep_ms()` so the control loop and server keep running.
+- **The hardware watchdog is fed from exactly one place**: `control_loop()`'s chunked-sleep loop, via the `wdt` passed from `main()` and armed at boot before any task is created. Never feed it elsewhere — a dead control loop must stop being fed. It follows that **no single uninterrupted blocking operation may approach the watchdog window** (~8 s; the rp2 WDT cannot be stopped once armed, so raising the timeout is never a mitigation): slice any new socket call, blocking driver or library with `await asyncio.sleep_ms()`, and never let a name lookup run while the watchdog is armed.
+- **WiFi runtime operations must be async**: `connect_wifi()` is boot-only and must never be called from a running task; runtime reconnect/monitoring is `reconnect_once_async()` / `wifi_watchdog_loop()` (REFERENCE §Wi-Fi watchdog).
 - **Module ownership**: `app/wifi.py` owns all WiFi state transitions (connect, reconnect, link monitoring). `app/control.py` owns sensor sampling + hysteresis only. No cross-module WiFi logic in control.py.
-- **HTTP handlers must not perform blocking sensor reads** (e.g. `sensor.d.measure()`) — use the last cached `status` values from `app/state.py` instead. The one exception is `GET /sensors?force=1`, which triggers an on-demand measurement via `sensor.read()`.
+- **HTTP handlers must not perform blocking sensor reads** (e.g. `sensor.d.measure()`) — use the cached `status` values instead. The one exception is `GET /sensors?force=1`, which triggers an on-demand measurement via `sensor.read()`.
 - **All POST handler error responses use the shape `{"ok": False, "error": "..."}`**. Do not mix flat `{"error": "..."}` with `{"ok": False, ...}` — standardise on `{"ok": False, "error": "..."}` across `/setpoints`, `/outputs`, `/control`, `/setup`, `/provision`, and `/reboot`.
-- **All I/O inside the event loop is async** — use `asyncio.create_task()` for background work. Sole exception: the `main.py` boot path (module level, before `asyncio.run()` starts the loop), where blocking calls are acceptable because nothing else is scheduled yet — this is where the blocking `connect_wifi()` runs.
+- **All I/O inside the event loop is async** — use `asyncio.create_task()` for background work. Sole exception: the `main.py` boot path (before `asyncio.run()` starts the loop), where blocking is acceptable because nothing else is scheduled yet — this is where the blocking `connect_wifi()` runs.
 - **Error handling**: bare `except:` is acceptable; always log errors with `print()`.
-- **Graceful shutdown**: use `stop_event` from `app/shutdown.py` — loops should check it and exit cleanly. The `finally` block in `main.py` calls `graceful_shutdown()` which turns all outputs off and disconnects WiFi (the `sensor` parameter is accepted but unused — it does not deinit the sensor).
+- **Graceful shutdown**: use `stop_event` from `app/shutdown.py` — loops should check it and exit cleanly. `main.py`'s `finally` calls `graceful_shutdown()`, which turns all outputs off and disconnects WiFi (its `sensor` parameter is accepted but unused — the sensor is not deinit'd).
 
 ## API Specification
 
-No automatic spec generation (MicroPython). `spec/openapi.yaml` is hand-maintained, committed OpenAPI 3.0 — edit it directly; there is no Bruno collection. The mock (`mushpi-mock`) reads it as canonical — keep it current. Out-of-band payloads (e.g. the boot announce, POSTed to the hub, not a served path) go under `components.schemas`, never `paths:`; the announce payload must stay aligned with `mushpi-mock` and the server's `AnnouncePicoUnitDto`.
+No automatic spec generation (MicroPython). `spec/openapi.yaml` is hand-maintained, committed OpenAPI 3.0 — edit it directly; there is no Bruno collection. `mushpi-mock` reads it as canonical — keep it current. Out-of-band payloads (the boot announce, POSTed to the hub, not a served path) go under `components.schemas`, never `paths:`; the announce payload must stay aligned with `mushpi-mock` and the server's `AnnouncePicoUnitDto`.

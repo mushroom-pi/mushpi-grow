@@ -17,7 +17,6 @@ As explained [in Micropython's documentation](https://docs.micropython.org/en/la
 
 ```python
   >>> import mip
-  >>> mip.install(urequests)
   >>> mip.install(microdot)
 ```
 
@@ -25,8 +24,9 @@ As explained [in Micropython's documentation](https://docs.micropython.org/en/la
 
 Extra packages can be added as single files in the `lib/` folder at the root of the package on execution.
 
-- `urequests.py`: download from [Github](https://github.com/lucien2k/wipy-urllib/blob/master/urequests.py).
 - `microdot.py`: download from [Github](https://github.com/miguelgrinberg/microdot/blob/main/src/microdot/microdot.py).
+
+Hub announcements need **no** HTTP client library: `app/announce.py` speaks the standard `usocket` stack directly, with every timeout kept as a firmware-internal constant. An `urequests.py` left over in `lib/` from an earlier flash is therefore harmless — the firmware does not import it.
 
 ## How to use
 
@@ -64,7 +64,7 @@ This software allows minimal communication through the Pico's integrated LED. Wh
 | LED Pattern | Meaning |
 |-------------|---------|
 | OFF | Wi-Fi lost or not connected — also the runtime link-down state: the LED is cleared when the link drops and stays off while reconnecting |
-| SOLID | Wi-Fi connected, hub announcement in progress or failed — a unit that reaches Wi-Fi but never the hub stays lit |
+| SOLID | Wi-Fi connected, hub announcement in progress or failed — a unit that reaches Wi-Fi but never the hub stays lit (after a link drop the heartbeat resumes as soon as Wi-Fi reconnects — see WiFi Auto-Reconnection) |
 | HEARTBEAT (even blink) | Normal operation |
 | CONFIG ERROR (3 fast blinks, 1s pause) | config.json is malformed, has invalid values, or assigns the same GPIO to two device roles — check serial output for details (duplicates name the colliding GPIO and both `pins.<role>` names) |
 | SLOW DOUBLE-BLINK (200/200/200/800ms) | AP provisioning mode — awaiting Wi-Fi credentials |
@@ -88,7 +88,7 @@ If WiFi drops for any reason (router restart, signal interference, etc.), the Pi
 
 1. **Detection**: The onboard watchdog monitors the WiFi link every 5 seconds. Within ~5s of a disconnection, the LED turns **OFF** and the Pico prints a diagnostic message to the serial console.
 2. **Reconnection attempts**: It tries to reconnect immediately, retrying with increasing delays: **5 seconds → 10 seconds → 30 seconds → 60 seconds** (stays at 60s until the link returns). All of the configured WiFi networks (primary SSID + any fallback `networks` in `config.json`) are tried in order on each attempt.
-3. **Recovery**: When reconnection succeeds, the LED resumes its **heartbeat** pattern, the Pico announces itself to the server again (so the server knows the new IP), and normal polling resumes.
+3. **Recovery**: When reconnection succeeds, the Pico refreshes its cached network info, prints the new IP, and resumes the **heartbeat** LED. It does not spawn a fresh announcement: if the boot announcement has not yet been acknowledged, its retrying task carries the new IP on the next attempt; if it was already acknowledged at boot, the hub learns a new IP through the server's regular 60-second poll instead.
 4. **Control continues**: Throughout the entire outage, the grow tent regulation (humidity/temperature control, relay actuation) keeps running independently. The Pico does **not** reboot on WiFi loss — only the connection is affected.
 
 **What you'll notice**: If your server dashboard shows a unit as "unreachable" but the relays are still clicking and the sensor values look normal, the Pico is fine — wait up to 60 seconds and it should reconnect on its own.
@@ -96,6 +96,8 @@ If WiFi drops for any reason (router restart, signal interference, etc.), the Pi
 ### Watchdog Timer (Auto-Recovery from Freezes)
 
 The Pico has a hardware watchdog timer that acts as a dead man's switch: if the control loop freezes or hangs for more than **8 seconds**, the Pico automatically hard-reboots. After the reboot, it reconnects to WiFi, re-announces to the server, and resumes normal operation — all without human intervention.
+
+The watchdog is armed at boot, **before the control-loop and announcement tasks start** (only the idle-meter task precedes it); the boot announcement then retries in the background with backoff (30/30/60/120/300 seconds, capped at 300) until the hub accepts it, so **an unreachable hub never affects regulation** — the unit keeps controlling humidity and temperature and serving its REST API throughout.
 
 This covers rare but critical failures like memory corruption, unhandled exceptions, or an infinite loop. Combined with WiFi auto-reconnection, the system is designed to self-heal from most runtime failures.
 

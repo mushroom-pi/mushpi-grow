@@ -8,7 +8,7 @@ from app.wifi import connect_wifi, start_ap_provisioning, wifi_watchdog_loop
 from app.hw import IO
 from app.sensor import DHTReader
 from app.control import control_loop
-from app.announce import announce_then_retry_once
+from app.announce import announce_then_retry_once, presolve_boot_hub
 from app.api import start_server
 from app.shutdown import graceful_shutdown, stop_event
 from app.metrics import start_metrics
@@ -74,12 +74,19 @@ if _ap_mode:
 else:
     ap = None
     state.attach_wlan_info(wlan, cfg)
+    # Boot hub name resolution: the only getaddrinfo() the firmware ever runs.
+    # It lives here, at module scope on the sanctioned blocking boot path (the
+    # same slot connect_wifi() above already occupies), because getaddrinfo has
+    # no timeout of its own and the WDT is constructed inside main() below:
+    # resolve first, arm second, and no name lookup can ever fall inside the
+    # armed watchdog window. Best-effort — it prints, never raises.
+    presolve_boot_hub(cfg, wlan)
 
 
 async def main():
     start_metrics()
     if _ap_mode:
-        # AP provisioning mode — no announce, no control loop
+        # AP provisioning mode — no announce, no control loop, no watchdog
         # Relays stay in boot-safe OFF state
         await start_server(cfg, ap, io, sensor, mode="ap")
     else:
@@ -88,7 +95,7 @@ async def main():
         asyncio.create_task(reboot_scheduler_loop(
             cfg, wlan, io, sensor, stop_event=stop_event))
         asyncio.create_task(announce_then_retry_once(
-            cfg, wlan, io, delay_s=60, stop_event=stop_event))
+            cfg, wlan, io, stop_event=stop_event))
         asyncio.create_task(control_loop(
             cfg, wlan, io, sensor, stop_event=stop_event, wdt=wdt))
         asyncio.create_task(wifi_watchdog_loop(

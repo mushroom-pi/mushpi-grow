@@ -120,10 +120,8 @@ async def reconnect_once_async(wlan, wifi_cfg, io=None, per_attempt_ms=10000):
 async def wifi_watchdog_loop(cfg, wlan, io=None, stop_event=None):
     """Monitor WiFi link; reconnect with backoff when it drops."""
     from .state import attach_wlan_info
-    from .announce import announce_then_retry_once
 
     poll_interval_ms = 5000
-    _announce_task = None
 
     while not (stop_event and stop_event.is_set()):
         if wlan.isconnected():
@@ -156,14 +154,21 @@ async def wifi_watchdog_loop(cfg, wlan, io=None, stop_event=None):
                 except:
                     pass
                 print("wifi: link up at", ip)
-
-                # Cancel stale announce task, spawn fresh one
-                if _announce_task and not _announce_task.done():
-                    _announce_task.cancel()
-                _announce_task = asyncio.create_task(
-                    announce_then_retry_once(cfg, wlan, io,
-                                             delay_s=60,
-                                             stop_event=stop_event))
+                # No announce respawn here. main.py's single boot announce task is
+                # still running its backoff loop and will reach the hub on its own;
+                # respawning one here is what created the overlapping-task bug.
+                # The respawn's OTHER job — restarting the heartbeat that the
+                # link-down led_solid(False) force-cleared — is done directly:
+                # start_led_heartbeat() cancels any existing heartbeat before
+                # creating one, so it cannot double-start (and none can be live
+                # here: the link-down above already cleared it). Cold start on a
+                # genuine link-up, from inside the running loop — exactly what
+                # the helper documents.
+                if io and hasattr(io, "start_led_heartbeat"):
+                    try:
+                        io.start_led_heartbeat(period_ms=800, stop_event=stop_event)
+                    except:
+                        pass
                 break
 
             # Backoff
