@@ -11,8 +11,10 @@ info:
     clients keep receiving JSON. In AP provisioning mode (open network,
     192.168.4.1) GET / returns an HTML provisioning setup form
     (text/html) instead of JSON, GET /ui serves a view-only variant of
-    the unit page; POST /provision accepts Wi-Fi credentials, writes
-    config.json, and reboots the unit into STA mode.
+    the unit page, and control POSTs (/setpoints, /outputs, /control,
+    /setup) are rejected with 403 (view-only); POST /provision accepts
+    Wi-Fi credentials, writes config.json, and reboots the unit into STA
+    mode.
     On boot (and on runtime re-announce) the unit POSTs its presence to
     the hub server — URL from config.json `hub_url`, authenticated via
     the `X-Pico-Secret` header. That announce payload is not a path
@@ -336,6 +338,23 @@ paths:
                 properties:
                   error:
                     type: string
+        '403':
+          description: >-
+            Unit is in AP provisioning mode (view-only) — rejected before
+            any setpoint mutation or hysteresis re-evaluation.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [false]
+                  error:
+                    type: string
+              example:
+                ok: false
+                error: controls are only available in STA mode - AP provisioning is view-only
       tags:
         - setpoints
       requestBody:
@@ -402,7 +421,13 @@ paths:
                   active_high:
                     type: boolean
         '400':
-          description: Invalid request body (bad pin values, non-dict pins, or a GPIO already assigned to another device after merging with the current mapping, etc.)
+          description: >-
+            Invalid request body — non-dict pins; a non-whole-number or
+            refused GPIO with a named reason (only 1-22, 26, 27 and 28 are
+            assignable: GP0 is reserved for the force-provision jumper,
+            GP23-GP25 and GP29 for the CYW43439 wireless chip); or a GPIO
+            the request would leave assigned to two devices after merging
+            with the current mapping (the error names the current holder).
           content:
             application/json:
               schema:
@@ -410,6 +435,23 @@ paths:
                 properties:
                   error:
                     type: string
+        '403':
+          description: >-
+            Unit is in AP provisioning mode (view-only) — rejected before
+            any pin remap, polarity mutation, or config write.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [false]
+                  error:
+                    type: string
+              example:
+                ok: false
+                error: controls are only available in STA mode - AP provisioning is view-only
         '500':
           description: Config persist to flash failed
           content:
@@ -433,11 +475,18 @@ paths:
               properties:
                 pins:
                   type: object
+                  description: >-
+                    GPIO assignments per device role. Assignable user
+                    GPIOs are 1-22, 26, 27 and 28; GP0 is reserved for the
+                    force-provision jumper (read at every boot), GP23-GP25
+                    and GP29 are reserved for the CYW43439 wireless chip.
+                    Each value must be a whole number; refused values
+                    return 400 with the named reason.
                   properties:
-                    dht:        { type: integer, minimum: 1, maximum: 29 }
-                    humidifier: { type: integer, minimum: 1, maximum: 29 }
-                    fan:        { type: integer, minimum: 1, maximum: 29 }
-                    heater:     { type: integer, minimum: 1, maximum: 29 }
+                    dht:        { type: integer }
+                    humidifier: { type: integer }
+                    fan:        { type: integer }
+                    heater:     { type: integer }
                 active_high:
                   type: boolean
             example:
@@ -516,6 +565,23 @@ paths:
                   value:
                     ok: false
                     error: 'the body must include at least one of: "humidifier", "fan", "heater"'
+        '403':
+          description: >-
+            Unit is in AP provisioning mode (view-only) — rejected before
+            any relay write.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [false]
+                  error:
+                    type: string
+              example:
+                ok: false
+                error: controls are only available in STA mode - AP provisioning is view-only
       tags:
         - outputs
       requestBody:
@@ -575,6 +641,23 @@ paths:
                     type: string
               example:
                 error: 'send {"enabled": true|false}'
+        '403':
+          description: >-
+            Unit is in AP provisioning mode (view-only) — rejected before
+            the enable flag changes and before relays are touched.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [false]
+                  error:
+                    type: string
+              example:
+                ok: false
+                error: controls are only available in STA mode - AP provisioning is view-only
       tags:
         - control
       requestBody:
@@ -916,9 +999,10 @@ paths:
         control (identity, board condition, climate and outputs,
         controls, devices, PIN mapping, hub state, reboot). AP
         provisioning mode: a view-only variant with a provisioning
-        banner. The file is hand-authored (app/unit.html) and served
-        from firmware memory; it loads no external resources and works
-        fully offline.
+        banner — the locking is enforced by the firmware's AP-mode 403
+        guards on the control POSTs, not merely by the page. The file is
+        hand-authored (app/unit.html) and served from firmware memory;
+        it loads no external resources and works fully offline.
       responses:
         '200':
           description: HTML unit page

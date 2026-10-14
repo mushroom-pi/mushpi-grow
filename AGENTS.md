@@ -54,10 +54,10 @@ mushpi-grow/
 | GET        | `/health`   | RAM, FS, Wi‑Fi RSSI, MCU temp, loop util %; uptime twice — `uptime_s` plus the `uptime` object |
 | GET        | `/system`   | Board, MicroPython version, software version, Wi‑Fi IP/MAC |
 | GET        | `/sensors`  | DHT reading; `?force=1` triggers one on-demand measurement |
-| GET / POST | `/setpoints`| `{"temperature": int, "humidity": int}` — immediate hysteresis re-evaluation when control is enabled |
-| GET / POST | `/outputs`  | `{"fan"?: bool, "humidifier"?: bool, "heater"?: bool}` — POST applies only keys present (≥1 required); responses always return all three |
-| GET / POST | `/control`  | `{"enabled": bool}` — disabling calls `relays_off()` immediately (synchronous) |
-| GET / POST | `/setup`    | GPIO pin mapping + `active_high`                          |
+| GET / POST | `/setpoints`| `{"temperature": int, "humidity": int}` — immediate hysteresis re-evaluation when control is enabled. AP: POST 403 (view-only) |
+| GET / POST | `/outputs`  | `{"fan"?: bool, "humidifier"?: bool, "heater"?: bool}` — POST applies only keys present (≥1 required); responses always return all three. AP: POST 403 (view-only) |
+| GET / POST | `/control`  | `{"enabled": bool}` — disabling calls `relays_off()` immediately (synchronous). AP: POST 403 (view-only) |
+| GET / POST | `/setup`    | GPIO pin mapping + `active_high` — assignable GPIOs 1–22, 26, 27, 28 only. AP: POST 403 (view-only) |
 | POST       | `/provision`| Wi-Fi credential provisioning — **mode-guarded to AP mode**: in STA mode rejected with 403 `{"ok": false, "error": "..."}` before any config write or reboot; in AP mode writes config.json + reboots |
 | POST       | `/reboot`   | `{"type": "soft"\|"hard"}` (optional, default `soft`) — graceful reboot (soft = `machine.soft_reset()`, hard = `machine.reset()`); response returns before reboot. |
 | OPTIONS    | any         | CORS preflight (`app.options_handler`) — not contract, absent from the spec → REFERENCE §CORS preflight |

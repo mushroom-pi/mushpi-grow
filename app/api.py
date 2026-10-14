@@ -7,6 +7,7 @@ from .state import status, setpoints, devices, get_system_info, _SOFTWARE_VERSIO
 from .metrics import system_snapshot
 from .control import is_control_enabled, set_control_enabled, evaluate_hysteresis, reset_on_since, mark_relay_off, mark_relay_on
 from .config_loader import save_config
+from .config_validator import PIN_ROLES, VALID_GPIO_HINT, gpio_reject_reason
 from .shutdown import reboot, soft_reboot
 from . import uptime
 
@@ -21,6 +22,11 @@ try:
         _UNIT_HTML = f.read()
 except OSError:
     _UNIT_HTML = '<html><body><h1>MushPi</h1><p>Error loading unit page.</p></body></html>'
+
+# AP provisioning is view-only: every control POST is refused with this 403
+# body before any side effect, so "view-only" holds at the firmware level,
+# not just in the page UI. /reboot and /provision keep their own semantics.
+_AP_VIEW_ONLY_ERROR = {"ok": False, "error": "controls are only available in STA mode - AP provisioning is view-only"}
 
 def make_app(cfg, wlan, io, sensor, mode="sta"):
     app = Microdot()
@@ -109,6 +115,10 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
     @app.post('/setpoints')
     def _setsp(req):
+        # Mode guard: AP provisioning is view-only. Rejected BEFORE any
+        # side effect (no setpoint mutation, no hysteresis eval).
+        if mode == "ap":
+            return _AP_VIEW_ONLY_ERROR, 403
         try:
             data = req.json
             if "temperature" in data: setpoints["temperature"] = int(data["temperature"])
@@ -133,17 +143,21 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
     @app.post('/setup')
     def _setdevices(req):
+        # Mode guard: AP provisioning is view-only. Rejected BEFORE any
+        # pin remap, polarity mutation, or config write.
+        if mode == "ap":
+            return _AP_VIEW_ONLY_ERROR, 403
         try:
             data = req.json
             if "pins" in data:
                 pins = data["pins"]
                 if not isinstance(pins, dict):
                     return {"ok": False, "error": "pins must be a dict"}, 400
-                for _k in ("dht", "humidifier", "fan", "heater"):
+                for _k in PIN_ROLES:
                     if _k in pins:
-                        _v = pins[_k]
-                        if isinstance(_v, bool) or not isinstance(_v, int) or not (1 <= _v <= 29):
-                            return {"ok": False, "error": "pins." + _k + " must be int in 1..29"}, 400
+                        _why = gpio_reject_reason(pins[_k])
+                        if _why is not None:
+                            return {"ok": False, "error": "pins." + _k + " - " + _why + " (" + VALID_GPIO_HINT + ")"}, 400
                 # Reject updates that would leave two functions on one GPIO.
                 # Checked against a merged view (current mapping overlaid with
                 # this request's keys) BEFORE any mutation, so a rejected
@@ -247,6 +261,10 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
     @app.post('/outputs')
     def _setoutputs(req):
+        # Mode guard: AP provisioning is view-only. Rejected BEFORE any
+        # relay write or config mutation.
+        if mode == "ap":
+            return _AP_VIEW_ONLY_ERROR, 403
         try:
             data = req.json or {}
             valid_keys = ("humidifier", "fan", "heater")
@@ -280,6 +298,10 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
     @app.post('/control')
     def _set_control(req):
+        # Mode guard: AP provisioning is view-only. Rejected BEFORE the
+        # enable flag changes and before relays are touched.
+        if mode == "ap":
+            return _AP_VIEW_ONLY_ERROR, 403
         try:
             body = req.json or {}
         except Exception:

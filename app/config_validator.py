@@ -1,6 +1,43 @@
 # Device roles in canonical order (same tuple as main.py and app/api.py).
 PIN_ROLES = ("dht", "humidifier", "fan", "heater")
 
+# ---------------------------------------------------------------------------
+# RESERVED-GPIO CONSTANTS — canonical firmware truth for user-assignable pins.
+# Deliberately firmware constants, NOT config.json keys (an operator must not
+# be able to config their way onto a reserved pin). app/api.py imports these
+# for POST /setup so the boot validation here and the live setup endpoint
+# reject the exact same set with the same named reasons.
+# Pico 2 W (RP2350 + CYW43439): GP0 is the force-provision jumper sampled at
+# boot with an internal pull-up; GP23–25 and GP29 are wired to the wireless
+# chip / board monitoring and must stay free. Valid user GPIOs: 1–22, 26, 27, 28.
+# ---------------------------------------------------------------------------
+
+VALID_USER_GPIO = tuple(range(1, 23)) + (26, 27, 28)
+
+RESERVED_GPIO_REASONS = {
+    0: "GP0 is reserved for the force-provision jumper (sampled at every boot)",
+    23: "GP23 is reserved for the CYW43439 wireless chip",
+    24: "GP24 is reserved for the CYW43439 wireless chip",
+    25: "GP25 is reserved for the CYW43439 wireless chip",
+    29: "GP29 is reserved for the CYW43439 wireless chip",
+}
+
+VALID_GPIO_HINT = "valid user GPIOs are 1-22, 26, 27 and 28"
+
+
+def gpio_reject_reason(v):
+    """Return None when v is an assignable user GPIO, else the named refusal.
+
+    Non-integer (and bool) values get the "whole number" reason; reserved
+    pins get their reservation sentence; anything else is off the GPIO range."""
+    if isinstance(v, bool) or not isinstance(v, int):
+        return "must be a whole number"
+    if v in VALID_USER_GPIO:
+        return None
+    if v in RESERVED_GPIO_REASONS:
+        return RESERVED_GPIO_REASONS[v]
+    return "GP" + str(v) + " is not a usable Pico 2 W GPIO"
+
 
 def _require_int(path, val, errors):
     if isinstance(val, bool) or not isinstance(val, int):
@@ -153,17 +190,19 @@ def validate_config(cfg):
             if _require_int("reboot.ntp_tz_offset_hours", tz, errors):
                 _range_check("reboot.ntp_tz_offset_hours", tz, -12, 14, errors)
 
-    # pins: optional, but if present must be dict with valid GPIO numbers
+    # pins: optional, but if present must be dict with assignable GPIOs
     if "pins" in cfg:
         pins = cfg["pins"]
         if not isinstance(pins, dict):
             errors.append("ERROR: pins must be a dict")
         else:
-            for k in ("dht", "humidifier", "fan", "heater"):
+            for k in PIN_ROLES:
                 if k in pins:
                     v = pins[k]
                     if _require_int("pins." + k, v, errors):
-                        _range_check("pins." + k, v, 1, 29, errors)
+                        _why = gpio_reject_reason(v)
+                        if _why is not None:
+                            errors.append("ERROR: pins." + k + " - " + _why + " (" + VALID_GPIO_HINT + ")")
             _append_duplicate_gpio_errors(pins, errors)
 
     # active_high: optional, but if present must be bool
