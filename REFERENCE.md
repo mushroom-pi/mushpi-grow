@@ -2,7 +2,7 @@
 
 Long-tail details and gotchas. **Load only when the task touches these areas** — do not read on every spawn. The always-loaded [`AGENTS.md`](./AGENTS.md) holds the module map, deploy steps, REST API table, shared-state rules, and core coding rules.
 
-Topics covered here: startup sequence · firmware/mDNS requirements · hardware pins · control-loop algorithm · `config.json` schema · AP provisioning · LED states · Wi-Fi watchdog · announce transport & watchdog budgets · MicroPython quirks · RAM/gc · persistence.
+Topics covered here: startup sequence · firmware/mDNS requirements · hardware pins · control-loop algorithm · `config.json` schema · AP provisioning · LED states · Wi-Fi watchdog · announce transport & watchdog budgets · MicroPython quirks · RAM/gc · persistence · version constants · shared-state pitfalls · REST API notes (CORS preflight).
 
 ---
 
@@ -136,6 +136,11 @@ Details:
 
 ## Coding Rules (Gotchas)
 
+### Version constants (`app/state.py`)
+
+- **`_SOFTWARE_VERSION`** is the firmware version's single source of truth (`GET /system`, `GET /`). Bump it only on release (`main`), never during `dev`; every bump keeps `spec/openapi.yaml` `info.version` and `mushpi-mock` in sync.
+- **`_API_VERSION`** (same file) is the Pico↔Server contract generation — bump only on breaking changes. Any `dev` bump needs a matching ≥ MINOR `_SOFTWARE_VERSION` bump.
+
 ### RAM budget
 
 ~520 KB on RP2350 (Pico 2 W); avoid large imports, f-strings, or unnecessary allocations. Call `gc.collect()` at the control-loop iteration boundary (after `evaluate_hysteresis()`, before the chunked-sleep loop) and in the HTTP `after_request` hook (`_cors()`). Per-call overhead is ~1–3ms — acceptable on a 10s+ loop and infrequent HTTP requests. This prevents heap fragmentation from accumulating over weeks of uptime.
@@ -159,6 +164,7 @@ Details:
 ### Announce transport & watchdog budgets (`app/announce.py`, `main.py`)
 
 - **The rp2 hardware WDT tops out at ~8.388 s and `machine.WDT` cannot be stopped once armed.** So raising the timeout is **never** a mitigation for a long blocking operation: the window cannot go past the hardware ceiling, and an armed watchdog cannot be stood down while a slow call runs. The only available lever is making the blocking operation cooperative — which is what the announce budgets do. Do not "fix" a watchdog reset by lengthening `WDT(timeout=...)`.
+- **For new code**: no single uninterrupted blocking operation may approach the ~8 s window — slice any new socket call, blocking driver or library with `await asyncio.sleep_ms()`, and never let a name lookup run while the watchdog is armed.
 - **Why every announce phase is bounded and sliced** (the one-feed-site rule itself is core-tier, stated in `AGENTS.md`): because `control_loop`'s 200 ms chunked-sleep loop is the only thing that keeps the watchdog alive, any *other* task that blocks without yielding starves the feed for as long as it blocks. The announce transport therefore bounds every phase and puts an `await asyncio.sleep_ms(0)` at every phase boundary, so a slow or dead hub costs an announce, never regulation. The arithmetic: the largest single uninterrupted blocking stretch inside an attempt is one `connect()` bounded by `_CONN_TIMEOUT_S` (3 s of the 8 s window); every send/recv slice is bounded by `_IO_SLICE_S` (1 s) with an await between slices, and the header read is capped in *slice count* by `_RESP_BUDGET_MS`. Corollary for anyone adding an async task: your task is the thing that can reset the unit, and there is no second feeder to save it. Never add a feed site elsewhere — the design intent is that a dead `control_loop` stops being fed.
 - **`ntptime.settime()` performs the same unbounded name lookup (`getaddrinfo`) inside the armed window** when `reboot.enabled` is true (default `False`) — `app/reboot_scheduler.py` runs it from the scheduler **task**, which is created after the `WDT` exists, so this resolution is *not* covered by the boot-path exception: the boot slot only ever holds the hub lookup. **Known, not fixed here**, and tracked separately: with scheduled reboots disabled the unit does not hit it, and a DNS answer for the NTP pool is normally fast, but the exposure is real and identical in kind to the one the announce transport was fixed for. If you touch the NTP path, this is the thing to revisit.
 - **`ussl`-wrapped sockets may not expose `settimeout()`.** `_set_timeout()` therefore applies the timeout to the **wrapper and the raw socket** and treats either landing as success. If the wrapper silently ignores it, the https path's per-slice IO timeout degrades from 1 s to the 3 s connect timeout — still bounded, just coarser. The whole `https` branch is untested on hardware; assume it needs a bench pass before relying on it.
@@ -176,5 +182,18 @@ Details:
 
 - **`uptime.json`** is a runtime-persisted file at flash root (like `config.json`). Created by `init_uptime()` on every boot. Schema: `{"cumulative_ms": int, "reboot_done_date": "YYYY-MM-DD" | null, "pending_type": "scheduled" | "soft" | "hard" | null}` — `pending_type` is the reboot-classification sentinel written by `mark_pending_reboot()` and cleared to `null` by `init_uptime()` on the next boot. Device-local only — never sent to the hub. Atomic write via `.tmp` + `os.rename`.
 - **`reboot_reason` enum**: the valid values produced by `app/uptime.py` are `scheduled`, `soft`, `hard`, `watchdog`, `power_on`, `unknown`. Document these in the `uptime` response schemas and keep `spec/openapi.yaml` in sync.
+- **Uptime in `GET /health`**: the value appears twice — the scalar `uptime_s` (cumulative seconds) and the `uptime` object (`total_s`, `since_boot_s`, `reboot_reason`, `scheduled_reboot`).
 - **Persist config** with `save_config(cfg)` — atomic write via `config.json.tmp` + `os.rename`. Never `open('config.json','w')` directly.
 - **`POST /provision` `wifi` key** persists to flash. **`POST /setup`** also persists `pins` and `active_high` to flash (survives reboot). Setpoints (via `POST /setpoints`) remain runtime-only (lost on reboot).
+
+### Shared-state pitfalls
+
+- **Exact key names**: the `status` keys (`fan`, `humidifier`, `heater`) must match `devices["pins"]` and the JSON names in `GET /` (`outputs.*`) and `GET /outputs`. A key typo (`heat` vs `heater`) silently desyncs: the GPIO toggles but `status` stays stale, so the server always polls `false`.
+- **Manual-override writer**: `POST /outputs` (`_setoutputs` in `app/api.py`) is the one sanctioned exception to the IO-helpers-only rule — it writes GPIO via `io.write(pin, bool)`, then sets `status[...]` and the min-runtime markers itself. Any other code writing these keys is a bug.
+
+## REST API notes
+
+### CORS preflight
+
+- `app.options_handler` (`app/api.py`) answers `OPTIONS` on any path with a **per-path `Allow`** header and a fixed `Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS`. `HEAD` is answered implicitly by the GET routes (and listed in `Allow` whenever `GET` is).
+- Preflight is **deliberately absent from `spec/openapi.yaml`** — it is not contract, so there is no mock sync duty; `mushpi-mock` answers preflight with FastAPI's CORS middleware.

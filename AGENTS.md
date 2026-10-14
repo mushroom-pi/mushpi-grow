@@ -2,7 +2,7 @@
 
 MicroPython firmware for Raspberry Pi Pico 2W. Controls humidity and temperature via hysteresis, serves a REST API on `api_port` (default 5000), and announces itself to a central hub on boot.
 
-> **Reference**: long-tail details (startup sequence, mDNS, hardware pins, control-loop algorithm, `config.json` schema, AP provisioning, LED states, MicroPython quirks, RAM/gc, persistence) live in [`REFERENCE.md`](./REFERENCE.md). Load it **only when the task touches those areas** — not on every spawn.
+> **Reference**: long-tail gotchas live in [`REFERENCE.md`](./REFERENCE.md) — its top lists the topics. Load it **only when the task touches those areas** — not on every spawn.
 
 ## Build, Lint, Test
 
@@ -10,7 +10,7 @@ There are no traditional build or test commands — this is plain MicroPython up
 
 - Deploy via the **MicroPico** VSCode extension (`paulober.pico-w-go`) — upload `.py`, `.html` and `config.json` to flash; see README §Setup.
 - Required third-party libs go in `/lib/` on the device: `microdot.py` (present in `lib/` locally but gitignored — not tracked in git). The announce uses the standard socket stack only — no HTTP client library is required.
-- `_SOFTWARE_VERSION` (`app/state.py`) is the firmware version's single source of truth (`GET /system`, `GET /`); bump only on release (`main`), keeping `spec/openapi.yaml` `info.version` and the mock in sync. `_API_VERSION` (same file) is the Pico↔Server contract generation — bump only on breaking changes, and any `dev` bump needs a matching ≥ MINOR `_SOFTWARE_VERSION` bump.
+- Version constants live in `app/state.py`: `_SOFTWARE_VERSION` (release-only — keep `spec/openapi.yaml` and the mock in sync) and `_API_VERSION` (bump only on breaking changes). Bump policy → REFERENCE §Version constants.
 
 ## Project Structure
 
@@ -27,7 +27,7 @@ mushpi-grow/
 │   ├── hw.py            # IO class — GPIO init, relay control, LED heartbeat
 │   ├── sensor.py        # DHTReader — reads DHT11, updates status
 │   ├── control.py       # control_loop() — hysteresis-based async coroutine; the only watchdog feed site (fed via `wdt=`)
-│   ├── announce.py      # announce_then_retry_once() — POSTs presence to hub; spawned only at boot, retries forever with backoff; resolves the hub name at boot only (`presolve_boot_hub()`)
+│   ├── announce.py      # announce_then_retry_once() — boot-only POST to the hub; retry/backoff → REFERENCE §Announce transport
 │   ├── api.py           # Microdot REST API (port `api_port`)
 │   ├── metrics.py       # system_snapshot() — RAM, FS, Wi‑Fi RSSI, MCU temp, uptime, loop util
 │   ├── wifi.py          # connect_wifi() (blocking boot connect), reconnect_once_async() (async reconnect), wifi_watchdog_loop() (link monitor with backoff; no announce responsibility → REFERENCE §Wi-Fi watchdog)
@@ -49,23 +49,23 @@ mushpi-grow/
 |------------|-------------|--------------------------------------------------------|
 | GET        | `/`         | STA: full JSON snapshot. AP: HTML provisioning form. CORS on all responses. |
 | GET        | `/ping`     | Liveness (empty 200)                                   |
-| GET        | `/health`   | RAM, FS, Wi‑Fi RSSI, MCU temp, loop util %; uptime appears twice: `uptime_s` (scalar, cumulative seconds) and the `uptime` object (`total_s`, `since_boot_s`, `reboot_reason`, `scheduled_reboot`) |
+| GET        | `/health`   | RAM, FS, Wi‑Fi RSSI, MCU temp, loop util %; uptime twice — `uptime_s` plus the `uptime` object |
 | GET        | `/system`   | Board, MicroPython version, software version, Wi‑Fi IP/MAC |
-| GET        | `/sensors`  | DHT reading; `?force=1` triggers on-demand measurement via `sensor.read()` (never raw `sensor.d.measure()`) |
+| GET        | `/sensors`  | DHT reading; `?force=1` triggers one on-demand measurement |
 | GET / POST | `/setpoints`| `{"temperature": int, "humidity": int}` — immediate hysteresis re-evaluation when control is enabled |
 | GET / POST | `/outputs`  | `{"fan"?: bool, "humidifier"?: bool, "heater"?: bool}` — POST applies only keys present (≥1 required); responses always return all three |
 | GET / POST | `/control`  | `{"enabled": bool}` — disabling calls `relays_off()` immediately (synchronous) |
 | GET / POST | `/setup`    | GPIO pin mapping + `active_high`                          |
 | POST       | `/provision`| Wi-Fi credential provisioning — **mode-guarded to AP mode**: in STA mode rejected with 403 `{"ok": false, "error": "..."}` before any config write or reboot; in AP mode writes config.json + reboots |
 | POST       | `/reboot`   | `{"type": "soft"\|"hard"}` (optional, default `soft`) — graceful reboot (soft = `machine.soft_reset()`, hard = `machine.reset()`); response returns before reboot. |
-| OPTIONS    | any         | CORS preflight (`app.options_handler`): per-path `Allow`, `Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS`; `HEAD` answered implicitly by GET routes. Deliberately not in the spec (not contract) — mock's FastAPI CORS middleware handles preflight; no sync duty. |
+| OPTIONS    | any         | CORS preflight (`app.options_handler`) — not contract, absent from the spec → REFERENCE §CORS preflight |
 
 ## Shared State Rules
 
 - `app/state.py` exports mutable dictionaries: `status`, `setpoints`, `devices`.
 - **Always mutate in place** — never reassign these module-level names.
 - `_system_info` is cached (built once, read many times).
-- **Relay-state keys must match exactly**: `status` keys (`fan`, `humidifier`, `heater`) must match `devices["pins"]` and the JSON names in `GET /` (`outputs.*`) and `GET /outputs`. The `IO` helpers (`hum_on()`, `fan_on()`, `heat_on()`, …) are the **only** writers of these keys, with one sanctioned exception: `POST /outputs` (`_setoutputs` in `app/api.py`), the manual-override path — it writes GPIO via `io.write(pin, bool)` then sets `status[...]` and the min-runtime markers itself. Any other code writing these keys is a bug. A key typo (`heat` vs `heater`) silently desyncs: the GPIO toggles but `status` stays stale, so the server always polls `false`.
+- **Relay-state keys must match exactly**: `status` keys (`fan`, `humidifier`, `heater`) mirror `devices["pins"]` and the JSON outputs. The `IO` helpers (`hum_on()`, `fan_on()`, `heat_on()`, …) are the **only** writers, plus one sanctioned exception: `POST /outputs` (`_setoutputs`). Any other writer is a bug → REFERENCE §Shared-state pitfalls.
 - **No GPIO read-back**: API relay state comes from the cached `status` dict, never live GPIO reads — those keys are the single source of truth.
 - **Never snapshot `status[...]` into module-level dicts at import time** — read from `status` live inside handlers; a snapshot captures initial values and never updates.
 
@@ -73,7 +73,7 @@ mushpi-grow/
 
 - **No type hints** — MicroPython support is limited; CPython type annotations are stripped before upload.
 - **Never use blocking calls** inside async tasks; use `await asyncio.sleep_ms()`.
-- **The hardware watchdog is fed from exactly one place**: `control_loop()`'s chunked-sleep loop, via the `wdt` passed from `main()` and armed at boot before any task is created. Never feed it elsewhere — a dead control loop must stop being fed. It follows that **no single uninterrupted blocking operation may approach the watchdog window** (~8 s; the rp2 WDT cannot be stopped once armed, so raising the timeout is never a mitigation): slice any new socket call, blocking driver or library with `await asyncio.sleep_ms()`, and never let a name lookup run while the watchdog is armed.
+- **The hardware watchdog is fed from exactly one place**: `control_loop()`'s chunked-sleep loop, via the `wdt` armed in `main()` before any task is created. Never feed it elsewhere — a dead control loop must stop being fed. Budget rules → REFERENCE §Announce transport & watchdog budgets.
 - **WiFi runtime operations must be async**: `connect_wifi()` is boot-only and must never be called from a running task; runtime reconnect/monitoring is `reconnect_once_async()` / `wifi_watchdog_loop()` (REFERENCE §Wi-Fi watchdog).
 - **Module ownership**: `app/wifi.py` owns all WiFi state transitions (connect, reconnect, link monitoring). `app/control.py` owns sensor sampling + hysteresis only. No cross-module WiFi logic in control.py.
 - **HTTP handlers must not perform blocking sensor reads** (e.g. `sensor.d.measure()`) — use the cached `status` values instead. The one exception is `GET /sensors?force=1`, which triggers an on-demand measurement via `sensor.read()`.
