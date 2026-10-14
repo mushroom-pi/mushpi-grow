@@ -114,9 +114,6 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
     def _setdevices(req):
         try:
             data = req.json
-            # Apply active_high BEFORE pins so io.remap() uses correct polarity
-            if "active_high" in data:
-                devices["active_high"] = bool(data["active_high"])
             if "pins" in data:
                 pins = data["pins"]
                 if not isinstance(pins, dict):
@@ -145,6 +142,15 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
                     for _k2 in ("dht", "humidifier", "fan", "heater"):
                         if _k2 != _k and _merged.get(_k2) == _v:
                             return {"ok": False, "error": "GPIO " + str(_v) + " is already assigned to " + _k2}, 400
+
+            # Apply active_high AFTER all pin validation so a rejected request
+            # leaves RAM unchanged, but BEFORE the remap calls below —
+            # io.remap() re-inits the pins and derives the off-level from
+            # devices["active_high"], so the polarity must land first.
+            if "active_high" in data:
+                devices["active_high"] = bool(data["active_high"])
+
+            if "pins" in data:
                 if "dht" in pins: sensor.remap(pins)
                 if "humidifier" in pins: io.remap("humidifier", pins)
                 if "fan" in pins: io.remap("fan", pins)
