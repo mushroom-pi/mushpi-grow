@@ -111,11 +111,19 @@ Embedded systems running 24/7 accumulate memory fragmentation and subtle resourc
    ```
    (Disabled by default. Also accepts `ntp_host` and `ntp_tz_offset_hours` for timezone adjustment.)
 
+   **Timezone semantics** — the unit has no battery-backed clock: it takes its time from NTP and stores **UTC plus `ntp_tz_offset_hours`**. The configured `hour`/`minute` are compared against that value, so with `ntp_tz_offset_hours: 0` (the default) **the configured hour is a UTC hour** — set it to your own UTC offset to have `hour` mean your local time. Example: with `ntp_tz_offset_hours: 2`, `"hour": 4` reboots at 04:00 local (02:00 UTC). The offset is a whole number of hours only (valid −12…+14), so half-hour zones cannot be expressed, and **there is no daylight-saving handling** — the offset must be changed by hand when your zone shifts. Changing it takes effect on the next reboot.
+
+   To see the clock the scheduler actually compares against, paste this at the MicroPico console:
+
+   ```python
+   import time; print("%04d-%02d-%02d %02d:%02d:%02d" % time.localtime()[:6])
+   ```
+
 2. **How it works** — After WiFi connects, the Pico syncs its clock via NTP. Every 60 seconds it checks the current time. When the configured hour and minute match, it gracefully shuts down (turns off all relays, disconnects WiFi), then performs a `machine.soft_reset()`. The reboot takes ~5–10 seconds from shutdown to full recovery.
 
 3. **Cumulative uptime** — Unlike power-cycles or watchdog reboots which reset the uptime counter, scheduled reboots **preserve** cumulative uptime in a `uptime.json` file on flash. The dashboard's `uptime.total_s` continues counting across scheduled reboots, so you won't see alarming "just restarted" numbers every morning.
 
-4. **Guards** — Won't reboot twice in the same day, won't reboot before NTP syncs (no clock = no scheduled reboot), and has a 5-minute boot grace period to avoid immediate re-reboot.
+4. **Guards** — Won't reboot twice in the same day, and won't reboot before NTP syncs (no clock = no scheduled reboot).
 
 The `GET /health` and `GET /system` endpoints report `uptime.reboot_reason` so you can tell at a glance whether the last restart was scheduled, a watchdog recovery, or an unexpected power cycle.
 

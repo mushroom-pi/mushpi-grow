@@ -112,7 +112,7 @@ paths:
                             description: Whether the daily scheduled reboot is enabled
                           hour:
                             type: integer
-                            description: Target hour for scheduled reboot (0-23, local time)
+                            description: Target hour for scheduled reboot (0-23, local time = UTC + reboot.ntp_tz_offset_hours; 0 means UTC)
                           minute:
                             type: integer
                             description: Target minute for scheduled reboot (0-59)
@@ -224,7 +224,7 @@ paths:
                             description: Whether the daily scheduled reboot is enabled
                           hour:
                             type: integer
-                            description: Target hour for scheduled reboot (0-23, local time)
+                            description: Target hour for scheduled reboot (0-23, local time = UTC + reboot.ntp_tz_offset_hours; 0 means UTC)
                           minute:
                             type: integer
                             description: Target minute for scheduled reboot (0-59)
@@ -827,7 +827,7 @@ paths:
                             description: Whether the daily scheduled reboot is enabled
                           hour:
                             type: integer
-                            description: Target hour for scheduled reboot (0-23, local time)
+                            description: Target hour for scheduled reboot (0-23, local time = UTC + reboot.ntp_tz_offset_hours; 0 means UTC)
                           minute:
                             type: integer
                             description: Target minute for scheduled reboot (0-59)
