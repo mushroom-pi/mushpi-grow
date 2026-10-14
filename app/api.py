@@ -3,7 +3,7 @@ import uasyncio as asyncio
 
 from microdot import Microdot, Response
 
-from .state import status, setpoints, devices, get_system_info, _SOFTWARE_VERSION, _API_VERSION
+from .state import status, setpoints, devices, hub, get_system_info, _SOFTWARE_VERSION, _API_VERSION
 from .metrics import system_snapshot
 from .control import is_control_enabled, set_control_enabled, evaluate_hysteresis, reset_on_since, mark_relay_off, mark_relay_on
 from .config_loader import save_config
@@ -382,7 +382,14 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
                 "heater": status["heater"],
             },
             "setpoints": setpoints,
-            "control_loop_enabled": is_control_enabled()
+            "control_loop_enabled": is_control_enabled(),
+            # "configured" is read live from the boot config; "connected" is
+            # the announce state written by app/announce.py (single writer) —
+            # an ack of the most recent announce, never a live hub ping.
+            "hub": {
+                "configured": bool(cfg.get("hub_url")),
+                "connected": hub["connected"],
+            },
         }
 
     return app

@@ -776,7 +776,8 @@ paths:
     get:
       summary: Get all the system's current parameters
       description: >-
-        In STA mode returns a full JSON snapshot of system state. Content negotiation (STA
+        In STA mode returns a full JSON snapshot of system state —
+        including the additive `hub` object. Content negotiation (STA
         path only, strict predicate): when the request's Accept header
         contains text/html AND does not contain application/json, the
         unit's status-and-control page (Content-Type: text/html, same as
@@ -980,6 +981,22 @@ paths:
                   control_loop_enabled:
                     type: boolean
                     description: Whether the hysteresis control loop is currently enabled
+                  hub:
+                    type: object
+                    description: >-
+                      Hub-connection state (additive). `configured` is
+                      whether config.json carries a hub_url at all.
+                      `connected` means the hub acknowledged this unit's
+                      MOST RECENT announce (the announce is sent at boot/
+                      reboot and retried with backoff) — the unit never
+                      pings the hub between announcements, so this is NOT
+                      live hub reachability and cannot reflect a hub
+                      outage. Written only by the announce task.
+                    properties:
+                      configured:
+                        type: boolean
+                      connected:
+                        type: boolean
             text/html:
               schema:
                 type: string

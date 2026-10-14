@@ -48,7 +48,7 @@ mushpi-grow/
 
 | Method     | Path        | Notes                                                  |
 |------------|-------------|--------------------------------------------------------|
-| GET        | `/`         | STA: full JSON snapshot; a browser `Accept` (text/html without application/json) gets the unit page instead. AP: HTML provisioning form. CORS on all responses. |
+| GET        | `/`         | STA: full JSON snapshot (incl. additive `hub` ack state); a browser `Accept` (text/html without application/json) gets the unit page instead. AP: HTML provisioning form. CORS on all responses. |
 | GET        | `/ui`       | On-device status & control page — HTML in both modes; AP serves a view-only provisioning variant → REFERENCE §Unit page |
 | GET        | `/ping`     | Liveness (empty 200)                                   |
 | GET        | `/health`   | RAM, FS, Wi‑Fi RSSI, MCU temp, loop util %; uptime twice — `uptime_s` plus the `uptime` object |

@@ -38,7 +38,7 @@ except ImportError:
     except ImportError:
         ssl = None
 
-from .state import _API_VERSION
+from .state import _API_VERSION, hub
 
 # ---------------------------------------------------------------------------
 # TRANSPORT BUDGETS — every number the announce may block for. Firmware
@@ -554,15 +554,24 @@ async def announce_then_retry_once(cfg, wlan, io=None, stop_event=None):
     if io and hasattr(io, "led_solid"):
         io.led_solid(True)
 
+    # state.hub is written ONLY here (single-writer rule, see app/state.py):
+    # not connected at loop start, cleared after every failed attempt,
+    # set on an ack. configured reflects whether hub_url is set at all.
+    hub["configured"] = bool(cfg.get("hub_url")) if isinstance(cfg, dict) else False
+    hub["connected"] = False
+
     n = 1
     while True:
         ok = await _post_once_async(cfg, wlan)
         _log_attempt(n, ok)
         if ok:
+            hub["connected"] = True
             if io:
                 io.led_flash(cycles=2, period_ms=120)
                 io.start_led_heartbeat(period_ms=800, stop_event=stop_event)
             return True
+
+        hub["connected"] = False
 
         # wait, but stay cancelable
         wait_s = _RETRY_BACKOFF_S[min(n - 1, len(_RETRY_BACKOFF_S) - 1)]
