@@ -44,6 +44,14 @@ If the firmware is too old, the boot sequence prints a warning referring you her
 **Download v1.26.0 firmware**: [RPI_PICO2_W-20250809-v1.26.0.uf2](https://micropython.org/resources/firmware/RPI_PICO2_W-20250809-v1.26.0.uf2)  
 **All releases**: https://micropython.org/download/RPI_PICO2_W/
 
+### Unit status and control page
+
+The unit serves its own status and control page, so you can check readings and change setpoints straight from a browser — no hub and no internet connection required.
+
+- **Open `http://<device_name>.local:5000`** in a browser on the same local network. The bare unit address (`http://<unit-ip>:5000` or `http://<device_name>.local:5000`) also serves the page to a browser instead of the JSON API.
+- **No mDNS?** If `<device_name>.local` does not resolve (see Firmware requirements for the MicroPython ≥ v1.26.0 requirement), use **`http://<unit-ip>:5000/ui`**.
+- **AP provisioning mode**: the bare IP still shows the Wi-Fi provisioning form; `http://<unit-ip>:5000/ui` serves the same page in a **view-only** variant, with a banner and the controls locked.
+
 ### Hub address (`hub_url`)
 
 `config.json`'s `hub_url` is the hub's **address only** — scheme, host and port:
