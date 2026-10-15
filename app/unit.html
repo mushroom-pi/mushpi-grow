@@ -4,7 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>MushPi · Unit status & control</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <title>Mushroom Pi · Unit status &amp; control</title>
     <style>
         * {
             box-sizing: border-box;
@@ -341,12 +342,13 @@
 
         <!-- ── header ── -->
         <div class="card">
-            <h1 class="logo">🍄 MushPi</h1>
+            <h1 class="logo">🍄 Mushroom Pi 🍓 - Pico Growing Unit</h1>
             <div class="devname" id="devname">unit</div>
             <div class="addr" id="hdrAddr">—</div>
             <div class="addr" id="hdrMdns"></div>
             <div class="hdrrow">
-                <div class="sub">Self-documenting status &amp; control page · served by this device, no hub required</div>
+                <div class="sub">Self-documenting status &amp; control page · served by this device, no hub required
+                </div>
                 <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto">
                     <button class="ghost mini" id="refreshBtn" type="button">⟳ Refresh</button>
                 </div>
@@ -362,9 +364,11 @@
                 This unit is waiting for Wi-Fi credentials. While it waits:
                 <ul style="margin:6px 0 6px 18px">
                     <li>The relays are <b>OFF</b> and stay off — the control loop is not running.</li>
-                    <li>Every control on this page is locked: the unit refuses changes (HTTP 403) until it has joined a network.</li>
+                    <li>Every control on this page is locked: the unit refuses changes (HTTP 403) until it has joined a
+                        network.</li>
                 </ul>
-                <b>How to leave:</b> open the <a href="/">Wi-Fi setup form</a> (the unit's root address), enter your network
+                <b>How to leave:</b> open the <a href="/">Wi-Fi setup form</a> (the unit's root address), enter your
+                network
                 credentials and submit. The unit saves them, reboots, and joins the network — this page then unlocks.
                 If GP0 was held LOW at boot to force provisioning: free GP0 and power-cycle the unit instead.
             </div>
@@ -377,11 +381,13 @@
             <div class="row"><span class="k">Board</span><span class="v" id="idBoard">—</span></div>
             <div class="why">The physical board the firmware runs on.</div>
             <div class="row"><span class="k">MicroPython</span><span class="v" id="idMp">—</span></div>
-            <div class="why">The interpreter flashed onto the board (mDNS needs ≥ v1.26.0 to reach this page by name).</div>
+            <div class="why">The interpreter flashed onto the board (mDNS needs ≥ v1.26.0 to reach this page by name).
+            </div>
             <div class="row"><span class="k">Firmware</span><span class="v" id="idFw">—</span></div>
-            <div class="why">The MushPi growing-unit program version.</div>
+            <div class="why">The Mushroom Pi growing-unit program version.</div>
             <div class="row"><span class="k">Interface generation</span><span class="v" id="idApi">—</span></div>
-            <div class="why">The wire contract generation between this unit and a hub server — it only changes when the REST API breaks compatibility.</div>
+            <div class="why">The wire contract generation between this unit and a hub server — it only changes when the
+                REST API breaks compatibility.</div>
         </div>
 
         <!-- ── board condition ── -->
@@ -391,11 +397,14 @@
             <div class="row"><span class="k">Time since boot</span><span class="v" id="bSince">—</span></div>
             <div class="why">How long this session has been running, plus why the unit last rebooted.</div>
             <div class="row"><span class="k">Board temperature</span><span class="v" id="bTemp">—</span></div>
-            <div class="why">The processor chip's own die temperature (rough, uncalibrated) — not the air temperature.</div>
+            <div class="why">The processor chip's own die temperature (rough, uncalibrated) — not the air temperature.
+            </div>
             <div class="row"><span class="k">Memory</span><span class="v" id="bMem">—</span></div>
-            <div class="why">MicroPython's working heap used by the program. Free space recovers via garbage collection; near-zero free means the unit is strained.</div>
+            <div class="why">MicroPython's working heap used by the program. Free space recovers via garbage collection;
+                near-zero free means the unit is strained.</div>
             <div class="row"><span class="k">Storage</span><span class="v" id="bFs">—</span></div>
-            <div class="why">Flash holding config.json, the firmware scripts and this page. Needs a few KB free to save changes.</div>
+            <div class="why">Flash holding config.json, the firmware scripts and this page. Needs a few KB free to save
+                changes.</div>
         </div>
 
         <!-- ── climate ── -->
@@ -405,11 +414,13 @@
             <div class="grid2">
                 <div>
                     <div class="big" id="cTemp">—</div>
-                    <div class="why">Air temperature at the sensor. The heater and the loop compare against the temperature target.</div>
+                    <div class="why">Air temperature at the sensor. The heater and the loop compare against the
+                        temperature target.</div>
                 </div>
                 <div>
                     <div class="big" id="cHum">—</div>
-                    <div class="why">Relative humidity at the sensor. The humidifier runs below the humidity target, the fan above it.</div>
+                    <div class="why">Relative humidity at the sensor. The humidifier runs below the humidity target, the
+                        fan above it.</div>
                 </div>
             </div>
             <div class="why" id="cAge">—</div>
@@ -422,7 +433,8 @@
             <div class="row"><span class="k">Sensor health</span><span class="chip on" id="cSensorChip">OK</span></div>
             <div class="why">The DHT11 reading the unit reports as its latest measurement.</div>
             <div class="alert warn" id="cSensorAlert" style="display:none"></div>
-            <div class="why"><b>Note:</b> if the sensor ever fails, the control loop keeps running on the last good reading
+            <div class="why"><b>Note:</b> if the sensor ever fails, the control loop keeps running on the last good
+                reading
                 — it does not stop regulating, and it cannot tell a faulted sensor from a working one. Watch this card
                 after a failure: the numbers below may be stale.</div>
         </div>
@@ -430,17 +442,21 @@
         <!-- ── controls ── -->
         <div class="card">
             <h2>Controls</h2>
-            <div class="cardnote">The automatic regulation switch and its targets. Nothing is sent until you press Apply.</div>
+            <div class="cardnote">The automatic regulation switch and its targets. Nothing is sent until you press
+                Apply.</div>
             <div class="alert" id="ctlAlert">Loading…</div>
             <div class="tog">
                 <input type="checkbox" class="switch" id="loopChk">
-                <span class="k">Control loop</span>&nbsp;<span class="why" style="flex:1">On = the unit drives the devices automatically toward the targets. Off = relays are forced OFF and devices are hand-switched below.</span>
+                <span class="k">Control loop</span>&nbsp;<span class="why" style="flex:1">On = the unit drives the
+                    devices automatically toward the targets. Off = relays are forced OFF and devices are hand-switched
+                    below.</span>
             </div>
             <label class="fld" for="tempSl">Target temperature <span class="v" id="tempVal">—</span></label>
             <div class="why">The loop heats below this; whole degrees, 0–50 °C. Disabled while the loop is off.</div>
             <input type="range" id="tempSl" min="0" max="50" step="1" value="25">
             <label class="fld" for="humSl">Target humidity <span class="v" id="humVal">—</span></label>
-            <div class="why">The loop humidifies below and fans above this; whole percent, 10–90. Disabled while the loop is off.</div>
+            <div class="why">The loop humidifies below and fans above this; whole percent, 10–90. Disabled while the
+                loop is off.</div>
             <input type="range" id="humSl" min="10" max="90" step="1" value="60">
             <div class="sum" id="ctlSum">No changes to send.</div>
             <button type="button" id="ctlSave" disabled>Apply controls</button>
@@ -450,11 +466,13 @@
         <!-- ── devices ── -->
         <div class="card">
             <h2>Devices</h2>
-            <div class="cardnote">Hand-switch the relays when the loop is off. Nothing is sent until you press Apply.</div>
+            <div class="cardnote">Hand-switch the relays when the loop is off. Nothing is sent until you press Apply.
+            </div>
             <div class="alert" id="devAlert">Loading…</div>
             <div class="tog">
                 <input type="checkbox" class="switch" id="dev-humidifier">
-                <span class="k">Humidifier</span>&nbsp;<span class="why" style="flex:1">On = relay energised now (the polarity setting decides what the relay module sees).</span>
+                <span class="k">Humidifier</span>&nbsp;<span class="why" style="flex:1">On = relay energised now (the
+                    polarity setting decides what the relay module sees).</span>
             </div>
             <div class="tog">
                 <input type="checkbox" class="switch" id="dev-fan">
@@ -476,32 +494,77 @@
         <!-- ── pin mapping ── -->
         <div class="card">
             <h2>PIN mapping</h2>
-            <div class="cardnote">Which GPIO pin drives which device. A saved change is written to flash and survives reboot.</div>
+            <div class="cardnote">Which GPIO pin drives which device. A saved change is written to flash and survives
+                reboot.</div>
             <div class="alert warn">Changing pin assignments will physically alter which GPIO pins control your devices.
                 Incorrect pin assignments can cause hardware malfunction. Proceed with caution.</div>
             <div class="why" style="margin-top:8px">Valid user GPIOs — pick only from these:</div>
             <table class="pin">
-                <tr><th>Pins</th><th>Status</th></tr>
-                <tr><td>GP1 – GP22</td><td>usable</td></tr>
-                <tr><td>GP26, GP27, GP28</td><td>usable</td></tr>
-                <tr><td>GP0</td><td>refused — reserved for the force-provision jumper (read at every boot)</td></tr>
-                <tr><td>GP23 – GP25</td><td>refused — reserved for the CYW43439 wireless chip</td></tr>
-                <tr><td>GP29</td><td>refused — reserved for the CYW43439 wireless chip</td></tr>
+                <tr>
+                    <th>Pins</th>
+                    <th>Status</th>
+                </tr>
+                <tr>
+                    <td>GP1 – GP22</td>
+                    <td>usable</td>
+                </tr>
+                <tr>
+                    <td>GP26, GP27, GP28</td>
+                    <td>usable</td>
+                </tr>
+                <tr>
+                    <td>GP0</td>
+                    <td>refused — reserved for the force-provision jumper (read at every boot)</td>
+                </tr>
+                <tr>
+                    <td>GP23 – GP25</td>
+                    <td>refused — reserved for the CYW43439 wireless chip</td>
+                </tr>
+                <tr>
+                    <td>GP29</td>
+                    <td>refused — reserved for the CYW43439 wireless chip</td>
+                </tr>
             </table>
-            <div class="why" style="margin-top:6px">Factory defaults: DHT11 GP4 · Humidifier GP6 · Fan GP7 · Heater GP8.</div>
-            <label class="acklbl"><input type="checkbox" class="switch" id="mapAck">I understand the risks and have verified my wiring</label>
+            <div class="why" style="margin-top:6px">Factory defaults: DHT11 GP4 · Humidifier GP6 · Fan GP7 · Heater GP8.
+            </div>
+            <label class="acklbl"><input type="checkbox" class="switch" id="mapAck">I understand the risks and have
+                verified my wiring</label>
             <div class="why" id="mapWhy">Tick the box to unlock the fields below.</div>
-            <div class="pinrow"><span class="nm">DHT11 sensor</span><input type="number" id="pin-dht" min="1" max="28" disabled><span class="hint" id="hint-dht">Valid GPIO: 1–22, 26, 27, 28</span></div>
-            <div class="pinrow"><span class="nm">Humidifier</span><input type="number" id="pin-humidifier" min="1" max="28" disabled><span class="hint" id="hint-humidifier">Valid GPIO: 1–22, 26, 27, 28</span></div>
-            <div class="pinrow"><span class="nm">Fan</span><input type="number" id="pin-fan" min="1" max="28" disabled><span class="hint" id="hint-fan">Valid GPIO: 1–22, 26, 27, 28</span></div>
-            <div class="pinrow"><span class="nm">Heater</span><input type="number" id="pin-heater" min="1" max="28" disabled><span class="hint" id="hint-heater">Valid GPIO: 1–22, 26, 27, 28</span></div>
+            <div class="pinrow"><span class="nm">DHT11 sensor</span><input type="number" id="pin-dht" min="1" max="28"
+                    disabled><span class="hint" id="hint-dht">Valid GPIO: 1–22, 26, 27, 28</span></div>
+            <div class="pinrow"><span class="nm">Humidifier</span><input type="number" id="pin-humidifier" min="1"
+                    max="28" disabled><span class="hint" id="hint-humidifier">Valid GPIO: 1–22, 26, 27, 28</span></div>
+            <div class="pinrow"><span class="nm">Fan</span><input type="number" id="pin-fan" min="1" max="28"
+                    disabled><span class="hint" id="hint-fan">Valid GPIO: 1–22, 26, 27, 28</span></div>
+            <div class="pinrow"><span class="nm">Heater</span><input type="number" id="pin-heater" min="1" max="28"
+                    disabled><span class="hint" id="hint-heater">Valid GPIO: 1–22, 26, 27, 28</span></div>
             <div class="why" style="margin-top:10px">Current → proposed:</div>
             <table class="pin">
-                <tr><th>Device</th><th>Current</th><th>Proposed</th></tr>
-                <tr><td>DHT11 sensor</td><td id="cur-dht">—</td><td id="prp-dht">—</td></tr>
-                <tr><td>Humidifier</td><td id="cur-humidifier">—</td><td id="prp-humidifier">—</td></tr>
-                <tr><td>Fan</td><td id="cur-fan">—</td><td id="prp-fan">—</td></tr>
-                <tr><td>Heater</td><td id="cur-heater">—</td><td id="prp-heater">—</td></tr>
+                <tr>
+                    <th>Device</th>
+                    <th>Current</th>
+                    <th>Proposed</th>
+                </tr>
+                <tr>
+                    <td>DHT11 sensor</td>
+                    <td id="cur-dht">—</td>
+                    <td id="prp-dht">—</td>
+                </tr>
+                <tr>
+                    <td>Humidifier</td>
+                    <td id="cur-humidifier">—</td>
+                    <td id="prp-humidifier">—</td>
+                </tr>
+                <tr>
+                    <td>Fan</td>
+                    <td id="cur-fan">—</td>
+                    <td id="prp-fan">—</td>
+                </tr>
+                <tr>
+                    <td>Heater</td>
+                    <td id="cur-heater">—</td>
+                    <td id="prp-heater">—</td>
+                </tr>
             </table>
             <div class="sum" id="mapSum">No changes to send.</div>
             <button type="button" id="mapSave" disabled>Save mapping</button>
@@ -517,8 +580,10 @@
             <div class="cardnote">Connection to the central hub server, if one is configured.</div>
             <div class="row"><span class="k">Hub configured</span><span class="chip off" id="hubCfgChip">—</span></div>
             <div class="why">Whether config.json carries a hub address at all.</div>
-            <div class="row"><span class="k">Hub acknowledged</span><span class="chip off" id="hubConnChip">—</span></div>
-            <div class="why">This reflects the most recent <b>announce</b> (sent at boot/reboot) and whether the hub accepted it.
+            <div class="row"><span class="k">Hub acknowledged</span><span class="chip off" id="hubConnChip">—</span>
+            </div>
+            <div class="why">This reflects the most recent <b>announce</b> (sent at boot/reboot) and whether the hub
+                accepted it.
                 Be honest about what this does not mean: the unit never pings the hub between announcements, so a hub
                 outage after the ack is <b>invisible</b> here. The hub keeps its own view fresh by polling this unit
                 about once a minute.</div>
@@ -528,10 +593,13 @@
         <!-- ── reboot ── -->
         <div class="card" id="card-reboot">
             <h2>Reboot</h2>
-            <div class="cardnote">Restart the unit. A soft reboot is faster and preserves cumulative uptime; a hard reboot
+            <div class="cardnote">Restart the unit. A soft reboot is faster and preserves cumulative uptime; a hard
+                reboot
                 is a full power-cycle.</div>
-            <button type="button" id="rebootSoft">Soft reboot</button>&nbsp;<button type="button" class="ghost" id="rebootHard">Hard reboot</button>
-            <div class="why" style="margin-top:8px">Soft — <code>machine.soft_reset()</code>: restarts the program, keeps
+            <button type="button" id="rebootSoft">Soft reboot</button>&nbsp;<button type="button" class="ghost"
+                id="rebootHard">Hard reboot</button>
+            <div class="why" style="margin-top:8px">Soft — <code>machine.soft_reset()</code>: restarts the program,
+                keeps
                 cumulative uptime, reconnects Wi-Fi and re-announces to the hub. Hard — <code>machine.reset()</code>:
                 full power-cycle, uptime counters reset to zero. Either way the unit is unreachable for about a minute
                 and relays are forced safe during the restart.</div>
@@ -541,7 +609,8 @@
         <!-- ── footer ── -->
         <div class="foot">
             Served by the unit itself — no sign-in, no internet access, local network only.<br>
-            Raw data lives at <code>/</code> (JSON) and the sub-endspoints <code>/system · /health · /sensors · /outputs · /control · /setpoints · /setup</code>.<br>
+            Raw data lives at <code>/</code> (JSON) and the sub-endspoints
+            <code>/system · /health · /sensors · /outputs · /control · /setpoints · /setup</code>.<br>
             <b>Not on this page — hub-only features:</b> batches &amp; recipes, historical readings and charts, the
             monitored power switch, renaming the unit / description / colour, and removing units from the fleet.
             Those require the hub dashboard.<br>

@@ -3,10 +3,14 @@ info:
   title: Pico Unit API
   version: 0.8.4
   description: >-
-    REST API served by every MushPi Pico growing unit on port 5000.
+    REST API served by every Mushroom Pi Pico growing unit on port 5000.
     In STA mode every endpoint returns JSON except GET /ui, which serves
-    the unit's self-documenting status-and-control page (text/html);
-    GET / also answers a browser with that page via content negotiation
+    the unit's self-documenting status-and-control page (text/html), and
+    GET /static/{filename}, which serves the pages' same-origin static
+    assets — application/javascript (unit.js) and image/svg+xml
+    (favicon.svg, shared with the AP provisioning form); GET / also
+    answers a browser with
+    that page via content negotiation
     (Accept containing text/html but not application/json) while API
     clients keep receiving JSON. In AP provisioning mode (open network,
     192.168.4.1) GET / returns an HTML provisioning setup form
@@ -781,8 +785,9 @@ paths:
         path only, strict predicate): when the request's Accept header
         contains text/html AND does not contain application/json, the
         unit's status-and-control page (Content-Type: text/html, same as
-        GET /ui) is returned instead of JSON. Clients whose Accept
-        mentions application/json — the hub's axios poll sends
+        GET /ui, including its same-origin static assets) is
+        returned instead of JSON. Clients whose Accept mentions
+        application/json — the hub's axios poll sends
         "application/json, text/plain, */*" — always receive JSON. In AP
         provisioning mode returns an HTML setup form (Content-Type:
         text/html) — see POST /provision.
@@ -1018,8 +1023,11 @@ paths:
         provisioning mode: a view-only variant with a provisioning
         banner — the locking is enforced by the firmware's AP-mode 403
         guards on the control POSTs, not merely by the page. The file is
-        hand-authored (app/unit.html) and served from firmware memory;
-        it loads no external resources and works fully offline.
+        hand-authored (app/unit.html) and served from firmware memory, and
+        loads same-origin static assets — GET /static/unit.js (script)
+        and GET /static/favicon.svg (icon) — served by this unit itself.
+        There is no CDN and no third-party resource, so the page still
+        works fully offline on the unit's own network.
       responses:
         '200':
           description: HTML unit page
