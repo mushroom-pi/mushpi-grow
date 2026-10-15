@@ -1,7 +1,7 @@
 import gc
 import uasyncio as asyncio
 
-from microdot import Microdot, Response
+from microdot import Microdot, Response, send_file
 
 from .state import status, setpoints, devices, hub, get_system_info, _SOFTWARE_VERSION, _API_VERSION
 from .metrics import system_snapshot
@@ -15,18 +15,25 @@ try:
     with open('app/provision.html', 'r') as f:
         _PROVISIONING_HTML = f.read()
 except OSError:
-    _PROVISIONING_HTML = '<html><body><h1>MushPi</h1><p>Error loading provisioning form.</p></body></html>'
+    _PROVISIONING_HTML = '<html><body><h1>Mushroom Pi</h1><p>Error loading provisioning form.</p></body></html>'
 
 try:
     with open('app/unit.html', 'r') as f:
         _UNIT_HTML = f.read()
 except OSError:
-    _UNIT_HTML = '<html><body><h1>MushPi</h1><p>Error loading unit page.</p></body></html>'
+    _UNIT_HTML = '<html><body><h1>Mushroom Pi</h1><p>Error loading unit page.</p></body></html>'
 
 # AP provisioning is view-only: every control POST is refused with this 403
 # body before any side effect, so "view-only" holds at the firmware level,
 # not just in the page UI. /reboot and /provision keep their own semantics.
 _AP_VIEW_ONLY_ERROR = {"ok": False, "error": "controls are only available in STA mode - AP provisioning is view-only"}
+
+# Explicit Content-Type for the static route below. Keyed by the asset
+# extension; the vendored Microdot would infer the same values from its
+# own types_map, but naming them here keeps the firmware's contract with
+# the browser independent of that gitignored library's internals.
+# Anything unknown streams as application/octet-stream.
+_STATIC_CONTENT_TYPES = {"js": "application/javascript", "svg": "image/svg+xml"}
 
 def make_app(cfg, wlan, io, sensor, mode="sta"):
     app = Microdot()
@@ -93,6 +100,26 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
         # provisioning page (banner + no controls), the STA variant the full
         # status-and-control page.
         return _unit_page()
+
+    @app.get('/static/<string:filename>')
+    def _static(req, filename):
+        # Page static assets (unit.js, favicon.svg) are streamed from flash
+        # (1 KB chunks from Microdot's send_file) so they are browser-cacheable
+        # and do not live in the heap as part of the page string. Content-Type
+        # is passed explicitly from _STATIC_CONTENT_TYPES rather than left to
+        # the vendored Microdot's inference. max_age is deliberately short:
+        # this Microdot has no ETag/304 support, so there is no cheap
+        # revalidation once a browser holds a copy. The `<string:...>` segment
+        # type matches a single path component (no slashes), which keeps a
+        # path-traversal shape out of the route entirely.
+        try:
+            ext = filename.rsplit('.', 1)[-1].lower()
+            return send_file('app/static/' + filename,
+                             content_type=_STATIC_CONTENT_TYPES.get(
+                                 ext, 'application/octet-stream'),
+                             max_age=3600)
+        except OSError:
+            return {"ok": False, "error": "static asset missing"}, 404
 
     @app.get('/ping')
     def _pin(req):

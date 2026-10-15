@@ -8,7 +8,7 @@ MicroPython firmware for Raspberry Pi Pico 2W. Controls humidity and temperature
 
 There are no traditional build or test commands — this is plain MicroPython uploaded directly to the Pico:
 
-- Deploy via the **MicroPico** VSCode extension (`paulober.pico-w-go`) — upload `.py`, `.html` and `config.json` to flash; see README §Setup.
+- Deploy via the **MicroPico** VSCode extension (`paulober.pico-w-go`) — upload `.py`, `.html`, `.js` and `config.json` to flash (authoritative list: `micropico.syncFileTypes` in `.vscode/settings.json`); see README §Setup.
 - Required third-party libs go in `/lib/` on the device: `microdot.py` (present in `lib/` locally but gitignored — not tracked in git). The announce uses the standard socket stack only — no HTTP client library is required.
 - Version constants live in `app/state.py`: `_SOFTWARE_VERSION` (release-only — keep `spec/openapi.yaml` and the mock in sync) and `_API_VERSION` (bump only on breaking changes). Bump policy → REFERENCE §Version constants.
 

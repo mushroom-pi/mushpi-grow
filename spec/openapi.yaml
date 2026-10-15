@@ -1029,6 +1029,49 @@ paths:
                 type: string
       tags:
         - monitoring
+  /static/{filename}:
+    get:
+      summary: Unit page static assets
+      description: >-
+        Same-origin static page assets for the unit page and the AP
+        provisioning form (app/static/). GET /static/unit.js serves the
+        unit page's JavaScript as application/javascript;
+        GET /static/favicon.svg serves the Mushroom Pi icon as
+        image/svg+xml (referenced by both pages' `rel=icon` links).
+        Streamed from flash in 1 KB chunks by Microdot's send_file, with
+        Cache-Control: max-age=3600. This Microdot build has no ETag or
+        If-None-Match/304 support, so a browser cannot cheaply revalidate
+        a copy it holds — hence the conservative max-age and no version
+        query string. The filename path parameter is constrained to the
+        complete asset set (unit.js, favicon.svg) — no open wildcard is
+        published. If the asset is missing from flash the handler
+        returns 404 with {"ok": false, "error": "static asset missing"}.
+        Page-asset surface only: neither the hub nor the server consumes
+        these paths.
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          description: The static asset to serve (the complete closed set).
+          schema:
+            type: string
+            enum:
+              - unit.js
+              - favicon.svg
+      responses:
+        '200':
+          description: >-
+            Static asset — unit page JavaScript (application/javascript)
+            or SVG icon (image/svg+xml), depending on filename
+          content:
+            application/javascript:
+              schema:
+                type: string
+            image/svg+xml:
+              schema:
+                type: string
+      tags:
+        - monitoring
   /reboot:
     post:
       summary: Trigger a reboot
