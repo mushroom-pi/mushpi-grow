@@ -10,6 +10,7 @@ from .config_loader import save_config
 from .config_validator import PIN_ROLES, VALID_GPIO_HINT, gpio_reject_reason
 from .shutdown import reboot, soft_reboot
 from . import uptime
+from . import runtime_state
 
 try:
     with open('app/provision.html', 'r') as f:
@@ -151,6 +152,14 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
             if "temperature" in data: setpoints["temperature"] = int(data["temperature"])
             if "humidity" in data:    setpoints["humidity"]    = int(data["humidity"])
             print("Updated setpoints to", setpoints)
+
+            # Persist grower-chosen targets to runtime.json so they survive a
+            # restart. A flash-write failure is logged but does NOT fail the
+            # request — the response reports the live in-memory state (200).
+            try:
+                runtime_state.save_setpoints(setpoints["temperature"], setpoints["humidity"])
+            except Exception as e:
+                print("setpoints: persist failed:", e)
 
             # Immediate re-evaluation so relays react now rather than waiting
             # for the next control_loop tick. Only when control is enabled —
@@ -315,6 +324,17 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
                 if heater: mark_relay_on("heater")
                 else: mark_relay_off("heater")
 
+            # Persist the hand-set fan/humidifier positions so they survive a
+            # restart while the loop stays off. Read from status (the applied
+            # values), not the partial-body locals, so a single-key POST still
+            # persists the full pair. The heater is never persisted. A
+            # flash-write failure is logged but does NOT fail the request —
+            # the 200 response reports the live state.
+            try:
+                runtime_state.save_outputs(status["fan"], status["humidifier"])
+            except Exception as e:
+                print("outputs: persist failed:", e)
+
             return { "ok": True, "fan": status["fan"], "humidifier": status["humidifier"], "heater": status["heater"] }
         except Exception as e:
             return { "ok": False, "error": str(e) }, 400
@@ -338,6 +358,13 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
         enabled = body["enabled"]
         set_control_enabled(enabled)
+
+        # Persist the loop switch so the grower's choice survives a restart.
+        # A flash-write failure is logged but does NOT fail the request.
+        try:
+            runtime_state.save_control_enabled(enabled)
+        except Exception as e:
+            print("control: persist failed:", e)
 
         # Optional: immediately force relays safe when disabling (LED heartbeat stays alive)
         if not enabled and hasattr(io, "relays_off"):

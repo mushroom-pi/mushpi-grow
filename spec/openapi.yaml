@@ -317,10 +317,11 @@ paths:
       tags:
         - setpoints
     post:
-      summary: Change setpoints
+      summary: Change setpoints (persists to flash — survives reboot)
       description: >-
         Updates one or both setpoints. Triggers immediate hysteresis
-        re-evaluation when the control loop is enabled.
+        re-evaluation when the control loop is enabled. The applied values are
+        persisted to flash so they survive a reboot.
       responses:
         '200':
           description: Updated setpoints
@@ -522,6 +523,10 @@ paths:
         keys present in the request body are applied; omitted relays
         keep their current state. At least one key is required.
         Updates min-runtime tracking for consistency with the control loop.
+        The applied fan and humidifier states persist to flash — they are
+        restored on reboot when the control loop is off. The heater never
+        persists: it always comes back OFF after a reboot. A flash-write
+        failure is logged on the unit and does not fail the request.
       responses:
         '200':
           description: Outputs updated
@@ -623,7 +628,14 @@ paths:
       description: >-
         Enable or disable the hysteresis control loop. When disabled,
         all relays are turned off immediately (relays_off) and
-        min-runtime tracking is reset.
+        min-runtime tracking is reset. The enabled state persists to
+        flash — it survives reboot: after a reboot the loop comes back
+        in the state it was left in. When the loop was left off, the
+        persisted hand-set fan and humidifier states are restored too
+        (the heater always comes back OFF); when it was left on, no
+        relay state is restored and the loop drives the relays from
+        the persisted setpoints. A flash-write failure is logged on the
+        unit and does not fail the request.
       responses:
         '200':
           description: Control loop state updated

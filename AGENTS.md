@@ -34,6 +34,7 @@ mushpi-grow/
 │   ├── config_loader.py # load_config() + save_config() — atomic config read/write
 │   ├── config_validator.py # validate_config() — boot-time config field validation
 │   ├── uptime.py         # Cumulative uptime tracking, boot-reason classification, uptime.json persistence
+│   ├── runtime_state.py # runtime.json persistence — setpoints, loop flag, hand-set fan/humidifier; restore() at boot → REFERENCE §Persistence
 │   ├── reboot_scheduler.py # Daily scheduled soft-reboot (STA mode), NTP sync
 │   ├── provision.html   # HTML form served in AP provisioning mode
 │   ├── unit.html        # Status/control page served at GET /ui (MODE/DEVNAME bootstrap; page logic in static/unit.js) → REFERENCE §Unit page (mock-vendored — keep the mirror current)
@@ -56,9 +57,9 @@ mushpi-grow/
 | GET        | `/health`   | RAM, FS, Wi‑Fi RSSI, MCU temp, loop util %; uptime twice — `uptime_s` plus the `uptime` object |
 | GET        | `/system`   | Board, MicroPython version, software version, Wi‑Fi IP/MAC |
 | GET        | `/sensors`  | DHT reading; `?force=1` triggers one on-demand measurement |
-| GET / POST | `/setpoints`| `{"temperature": int, "humidity": int}` — immediate hysteresis re-evaluation when control is enabled. AP: POST 403 (view-only) |
-| GET / POST | `/outputs`  | `{"fan"?: bool, "humidifier"?: bool, "heater"?: bool}` — POST applies only keys present (≥1 required); responses always return all three. AP: POST 403 (view-only) |
-| GET / POST | `/control`  | `{"enabled": bool}` — disabling calls `relays_off()` immediately (synchronous). AP: POST 403 (view-only) |
+| GET / POST | `/setpoints`| `{"temperature": int, "humidity": int}` — immediate hysteresis re-evaluation when control is enabled. POST persists to flash (`runtime.json`) — survives reboot. AP: POST 403 (view-only) |
+| GET / POST | `/outputs`  | `{"fan"?: bool, "humidifier"?: bool, "heater"?: bool}` — POST applies only keys present (≥1 required); responses always return all three. POST persists the applied fan/humidifier to flash (`runtime.json`) — restored on reboot when the loop is off; **`heater` never persists**. AP: POST 403 (view-only) |
+| GET / POST | `/control`  | `{"enabled": bool}` — disabling calls `relays_off()` immediately (synchronous). POST persists the flag to flash (`runtime.json`) — the loop restarts in the state it was left in. AP: POST 403 (view-only) |
 | GET / POST | `/setup`    | GPIO pin mapping + `active_high` — assignable GPIOs 1–22, 26, 27, 28 only. AP: POST 403 (view-only) |
 | POST       | `/provision`| Wi-Fi credential provisioning — **mode-guarded to AP mode**: in STA mode rejected with 403 `{"ok": false, "error": "..."}` before any config write or reboot; in AP mode writes config.json + reboots |
 | POST       | `/reboot`   | `{"type": "soft"\|"hard"}` (optional, default `soft`) — graceful reboot (soft = `machine.soft_reset()`, hard = `machine.reset()`); response returns before reboot. |
@@ -69,7 +70,8 @@ mushpi-grow/
 - `app/state.py` exports mutable dictionaries: `status`, `setpoints`, `devices`.
 - **Always mutate in place** — never reassign these module-level names.
 - `_system_info` is cached (built once, read many times).
-- **Relay-state keys must match exactly**: `status` keys (`fan`, `humidifier`, `heater`) mirror `devices["pins"]` and the JSON outputs. The `IO` helpers (`hum_on()`, `fan_on()`, `heat_on()`, …) are the **only** writers, plus one sanctioned exception: `POST /outputs` (`_setoutputs`). Any other writer is a bug → REFERENCE §Shared-state pitfalls.
+- **Relay-state keys must match exactly**: `status` keys (`fan`, `humidifier`, `heater`) mirror `devices["pins"]` and the JSON outputs. The `IO` helpers (`hum_on()`, `fan_on()`, `heat_on()`, …) are the **only** writers, plus one sanctioned exception: `POST /outputs` (`_setoutputs`). Boot restore (`runtime_state.restore()`) is sanctioned too but drives relays **only through the `IO` helpers**, so it is not a direct `status` writer. Any other writer is a bug → REFERENCE §Shared-state pitfalls.
+- **Durability writers are POST-only**: only the three `api.py` POST handlers (`/setpoints`, `/outputs`, `/control`) write `runtime.json`, and only `main.py` calls `runtime_state.restore()` (boot slot). `app/control.py`, `app/hw.py` and `app/sensor.py` must **never** import `app/runtime_state.py` — loop-driven switching must never touch flash.
 - **No GPIO read-back**: API relay state comes from the cached `status` dict, never live GPIO reads — those keys are the single source of truth.
 - **Never snapshot `status[...]` into module-level dicts at import time** — read from `status` live inside handlers; a snapshot captures initial values and never updates.
 

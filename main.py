@@ -12,6 +12,7 @@ from app.announce import announce_then_retry_once, presolve_boot_hub
 from app.api import start_server
 from app.shutdown import graceful_shutdown, stop_event
 from app.metrics import start_metrics
+from app import runtime_state
 
 # Hardware & sensor
 io = IO()  # This will turn the LED ON
@@ -81,6 +82,13 @@ else:
     # resolve first, arm second, and no name lookup can ever fall inside the
     # armed watchdog window. Best-effort — it prints, never raises.
     presolve_boot_hub(cfg, wlan)
+
+# Rehydrate grower-chosen state (targets, loop flag, and — when the loop is off
+# — hand-set fan/humidifier positions) from runtime.json. Boot path at module
+# scope, before asyncio.run() below: it must run before control_loop() is ever
+# created so the primed relay latch is seen. Blocking flash reads are sanctioned
+# only in this slot (nothing scheduled yet, WDT not yet armed).
+runtime_state.restore(cfg, io, _ap_mode)
 
 
 async def main():

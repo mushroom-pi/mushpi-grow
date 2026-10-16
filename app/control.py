@@ -10,11 +10,31 @@ _on_since = {"humidifier": None, "fan": None, "heater": None}
 control_enabled_event = asyncio.Event()
 control_enabled_event.set()
 
+# Boot-time seed for control_loop()'s `relays_latched` local. The loop turns the
+# relays off once when it finds control disabled; a persisted hand-set position
+# restored at boot must not be wiped by that first pass, so runtime_state.restore()
+# primes this to True when it re-drives the relays. Written ONLY by
+# prime_control_enabled() below; False keeps a cold boot behaving as before.
+_relays_latched_init = False
+
 def set_control_enabled(enabled: bool):
     if enabled:
         control_enabled_event.set()
     else:
         control_enabled_event.clear()
+
+def prime_control_enabled(enabled, relays_latched=False):
+    """Boot-only restore of the persisted loop flag (sole caller:
+    app/runtime_state.restore()). Sets/clears control_enabled_event and is the
+    ONLY writer of _relays_latched_init.
+
+    relays_latched=True declares that the disabled-state relay positions are
+    already live on the outputs, so control_loop() must skip its one-shot
+    relays_off(). Unlike set_control_enabled(), this never acts on relays — the
+    restore path in runtime_state owns the physical writes."""
+    global _relays_latched_init
+    _relays_latched_init = bool(relays_latched)
+    set_control_enabled(enabled)
 
 def is_control_enabled():
     return control_enabled_event.is_set()
@@ -92,7 +112,10 @@ def evaluate_hysteresis(cfg, io):
 
 async def control_loop(cfg, wlan, io, sensor, stop_event=None, wdt=None):
     P = cfg["control"]["period_s"]
-    relays_latched = False  # ensures relays_off() called only once when disabled
+    # Primed from runtime.json at boot (see prime_control_enabled): a restored
+    # hand-set position counts as already latched-off-safe, so the first pass of
+    # a disabled loop does not relays_off() and wipe it.
+    relays_latched = _relays_latched_init
 
     while not (stop_event and stop_event.is_set()):
         # WiFi monitoring/reconnect handled by wifi_watchdog_loop

@@ -51,6 +51,7 @@ The unit serves its own status and control page, so you can check readings and c
 - **Open `http://<device_name>.local:5000`** in a browser on the same local network. The bare unit address (`http://<unit-ip>:5000` or `http://<device_name>.local:5000`) also serves the page to a browser instead of the JSON API.
 - **No mDNS?** If `<device_name>.local` does not resolve (see Firmware requirements for the MicroPython ≥ v1.26.0 requirement), use **`http://<unit-ip>:5000/ui`**.
 - **AP provisioning mode**: the bare IP still shows the Wi-Fi provisioning form; `http://<unit-ip>:5000/ui` serves the same page in a **view-only** variant, with a banner and the controls locked.
+- The page has **Controls** and **Devices** cards — this is where your targets, the control-loop state and any hand-set outputs show up (see [Saved settings survive a restart](#saved-settings-survive-a-restart); further reading: [Unit page documentation](https://mushroom-pi.mintlify.site/hardware/unit-page)).
 
 ### Hub address (`hub_url`)
 
@@ -134,6 +135,23 @@ Embedded systems running 24/7 accumulate memory fragmentation and subtle resourc
 4. **Guards** — Won't reboot twice in the same day, and won't reboot before NTP syncs (no clock = no scheduled reboot).
 
 The `GET /health` and `GET /system` endpoints report `uptime.reboot_reason` so you can tell at a glance whether the last restart was scheduled, a watchdog recovery, or an unexpected power cycle.
+
+### Saved settings survive a restart
+
+The unit remembers the grower's own settings across **every kind of restart** — power cut, soft or hard reboot, the scheduled daily reboot, and a watchdog-triggered recovery. They are stored on the unit itself, in a separate device-local store from the pin/provisioning configuration (`config.json`); the separation is deliberate, so re-flashing provisioning no longer risks the grower's saved targets, and pin-mapping persistence is unchanged.
+
+| What | Survives a restart? |
+|---|---|
+| Temperature & humidity targets | **Yes** — restored on boot |
+| Control-loop on/off state | **Yes** — the loop resumes as it was left |
+| Hand-set fan + humidifier positions | **Yes, while the loop is off** |
+| Heater | **Never** — always comes back **off** |
+
+The heater rule is a safety one: nothing on the unit cools it, and with the loop off nothing regulates temperature, so a heater restored to *on* would be an unattended heat source. Hand-setting the heater on still works while the unit is running — it simply never survives a restart.
+
+Only the grower's own actions are saved — switching driven by the control loop never writes to storage. A setting becomes durable as soon as the action succeeds, and the write is atomic, so a power cut mid-write leaves the previous value intact rather than a corrupt store. Turning the loop back on takes over from hand-set positions, as before. After a power cut, the restored targets govern until the unit reconnects to a hub running a batch, at which point the batch's targets take over as usual.
+
+One caveat: turning the loop **off** arms a one-shot "all outputs off" that fires on the loop's next pass, so a fan or humidifier hand-set in that brief window is switched off once; hand-sets made afterwards hold while the loop stays off. It never affects the saved settings.
 
 ### Manual Reboot (API)
 
