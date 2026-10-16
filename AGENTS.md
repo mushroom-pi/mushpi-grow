@@ -36,8 +36,8 @@ mushpi-grow/
 │   ├── uptime.py         # Cumulative uptime tracking, boot-reason classification, uptime.json persistence
 │   ├── reboot_scheduler.py # Daily scheduled soft-reboot (STA mode), NTP sync
 │   ├── provision.html   # HTML form served in AP provisioning mode
-│   ├── unit.html        # Status/control page served at GET /ui (MODE/DEVNAME bootstrap; page logic in static/unit.js) → REFERENCE §Unit page
-│   ├── static/          # Unit page static assets (unit.js, favicon.svg) served at GET /static/<filename>, streamed → REFERENCE §Unit page
+│   ├── unit.html        # Status/control page served at GET /ui (MODE/DEVNAME bootstrap; page logic in static/unit.js) → REFERENCE §Unit page (mock-vendored — keep the mirror current)
+│   ├── static/          # Unit page static assets (unit.js, favicon.svg) served at GET /static/<filename>, streamed → REFERENCE §Unit page (mock-vendored)
 │   └── shutdown.py      # graceful_shutdown() + reboot() + soft_reboot()
 ├── spec/
 │   └── openapi.yaml     # Hand-maintained OpenAPI 3.0 spec (committed)
