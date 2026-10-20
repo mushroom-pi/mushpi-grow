@@ -30,6 +30,24 @@ Hub announcements need **no** HTTP client library: `app/announce.py` speaks the 
 
 ## How to use
 
+### The three ways a unit runs
+
+A unit regulates its climate the same way in every configuration — the only difference is where you look at it and what you get on top. There are three:
+
+1. **No Wi-Fi at all.** The unit keeps regulating against the targets it holds. Its readings and settings are reachable by joining the unit's own open access point (**SSID `mushpi-provision-XXXX`**, address **`192.168.4.1:5000`**). The unit page is the landing page there, and the Wi-Fi setup form is a link from it.
+2. **Joined to a Wi-Fi network, no hub.** The unit keeps regulating, and its readings and settings are reachable on that network at the unit's IP address.
+3. **Joined to a Wi-Fi network with a Mushroom Pi hub.** The hub aggregates the units on the network, stores their readings, and organises recipes and harvests. The dashboard becomes the primary surface; the unit page remains available at the unit's own address.
+
+| What | No Wi-Fi | Wi-Fi, no hub | Wi-Fi + hub |
+|---|---|---|---|
+| Climate regulation | ✅ always | ✅ always | ✅ always |
+| Unit page (readings, targets, control) | ✅ on its own AP | ✅ on the network | ✅ on the network |
+| Dashboard | — | — | ✅ |
+| Reading history | — | — | ✅ stored by the hub |
+| Batches & recipes | — | — | ✅ hub-only |
+
+Aggregation, reading history and batches/recipes are **hub-only** — an offline unit, or one on a network without a hub, has no dashboard, no history and no batches. The unit itself never needs any of these to keep growing: it regulates from the targets it holds and serves its own page in all three modes.
+
 ### Firmware requirements
 
 For `<device_name>.local` mDNS resolution to work (so you can reach the unit at `http://<device_name>.local:5000/ping` from the same LAN without knowing its IP), the Pico must run **MicroPython v1.26.0 or newer**.
@@ -48,9 +66,9 @@ If the firmware is too old, the boot sequence prints a warning referring you her
 
 The unit serves its own status and control page, so you can check readings and change setpoints straight from a browser — no hub and no internet connection required.
 
-- **Open `http://<device_name>.local:5000`** in a browser on the same local network. The bare unit address (`http://<unit-ip>:5000` or `http://<device_name>.local:5000`) also serves the page to a browser instead of the JSON API.
-- **No mDNS?** If `<device_name>.local` does not resolve (see Firmware requirements for the MicroPython ≥ v1.26.0 requirement), use **`http://<unit-ip>:5000/ui`**.
-- **AP provisioning mode**: the bare IP still shows the Wi-Fi provisioning form; `http://<unit-ip>:5000/ui` serves the same page in a **view-only** variant, with a banner and the controls locked.
+- **Open the unit's address in a browser** — `http://<unit-ip>:5000` on the same network (or in the unit's own access point). The bare address serves the page to a browser and the JSON API to non-browser clients such as the hub. If your network resolves `<device_name>.local`, the page is also reachable by that name — see Firmware requirements above.
+- **The unit page is the landing page in every mode.** `GET /` serves the page to a browser whether the unit is offline (its own access point) or connected; `GET /ui` is an alias for the same page.
+- **Wi-Fi setup is a separate form at `GET /provision`**, linked from the unit page's offline banner. It works in both modes: offline it submits, saves the credentials and reboots the unit into the network; on a connected unit the form still loads but its submission is rejected.
 - The page has **Controls** and **Devices** cards — this is where your targets, the control-loop state and any hand-set outputs show up (see [Saved settings survive a restart](#saved-settings-survive-a-restart); further reading: [Unit page documentation](https://mushroom-pi.mintlify.site/hardware/unit-page)).
 
 ### Hub address (`hub_url`)
@@ -68,15 +86,14 @@ The unit serves its own status and control page, so you can check readings and c
 
 ### LED indicator
 
-This software allows minimal communication through the Pico's integrated LED. When the software starts executing, the LED comes on briefly at initialisation, goes off while Wi-Fi is connecting, and comes on solid once the link is up; after that, the possible LED statuses are:
+The Pico's onboard LED is the unit's one-word status signal: it comes on at power-on, then settles into one of the states below.
 
 | LED Pattern | Meaning |
 |-------------|---------|
-| OFF | Wi-Fi lost or not connected — also the runtime link-down state: the LED is cleared when the link drops and stays off while reconnecting |
-| SOLID | Wi-Fi connected, hub announcement in progress or failed — a unit that reaches Wi-Fi but never the hub stays lit (after a link drop the heartbeat resumes as soon as Wi-Fi reconnects — see WiFi Auto-Reconnection) |
-| HEARTBEAT (even blink) | Normal operation |
+| SLOW DOUBLE-BLINK (200/200/200/800ms) | **The unit is working** — regulating and serving its page — but has no usable Wi-Fi link. This is the offline operating state: no network configured, a failed connection, a force-provision boot, or a runtime link drop (during which the unit brings its own access point back up). Control continues throughout |
+| SOLID | Wi-Fi connected, but the hub announcement is in progress or not yet acknowledged — a unit that reaches Wi-Fi but is never acknowledged by a hub stays lit |
+| HEARTBEAT (even blink) | **Acknowledged by the Mushroom Pi hub** — healthy operation within a hub |
 | CONFIG ERROR (3 fast blinks, 1s pause) | config.json is malformed, has invalid values, or assigns the same GPIO to two device roles — check serial output for details (duplicates name the colliding GPIO and both `pins.<role>` names) |
-| SLOW DOUBLE-BLINK (200/200/200/800ms) | AP provisioning mode — awaiting Wi-Fi credentials |
 
 ### Provisioning (First-Time Setup or Wi-Fi Recovery)
 
@@ -85,17 +102,17 @@ On first boot (no Wi-Fi configured) or after a Wi-Fi connection failure, the Pic
 1. The LED starts a **slow double-blink** pattern (200ms on / 200ms off / 200ms on / 800ms off).
 2. The Pico creates its own open Wi-Fi network: **`mushpi-provision-XXXX`** (where XXXX is the last 4 hex digits of the AP MAC address — no password).
 3. Connect to that network from any phone, laptop, or tablet.
-4. Open **`http://192.168.4.1:5000`** in a browser.
-5. Enter your Wi-Fi network name (SSID) and password in the form.
+4. Open **`http://192.168.4.1:5000`** in a browser — you land on the unit's status & control page.
+5. Open the **Wi-Fi setup form** — linked from the page's offline banner, or directly at **`http://192.168.4.1:5000/provision`** — and enter your Wi-Fi network name (SSID) and password.
 6. The Pico saves the credentials to `config.json`, reboots, and connects to your network.
 
-**Force-provision**: Hold **GP0 to GND** during boot to force provisioning mode, even if Wi-Fi credentials are already configured. This is useful for changing networks or recovering from bad credentials.
+**Force-provision**: Hold **GP0 to GND** during boot to force provisioning mode, even if Wi-Fi credentials are already configured. This is useful for changing networks or recovering from bad credentials. Release GP0 before the unit restarts — otherwise the next boot will force-provision again.
 
 ### WiFi Auto-Reconnection
 
 If WiFi drops for any reason (router restart, signal interference, etc.), the Pico handles it automatically without human intervention:
 
-1. **Detection**: The onboard watchdog monitors the WiFi link every 5 seconds. Within ~5s of a disconnection, the LED turns **OFF** and the Pico prints a diagnostic message to the serial console.
+1. **Detection**: The onboard watchdog monitors the WiFi link every 5 seconds. Within ~5s of a disconnection, the LED switches to the **slow double-blink** (the offline state) and the Pico prints a diagnostic message to the serial console.
 2. **Reconnection attempts**: It tries to reconnect immediately, retrying with increasing delays: **5 seconds → 10 seconds → 30 seconds → 60 seconds** (stays at 60s until the link returns). All of the configured WiFi networks (primary SSID + any fallback `networks` in `config.json`) are tried in order on each attempt.
 3. **Recovery**: When reconnection succeeds, the Pico refreshes its cached network info, prints the new IP, and resumes the **heartbeat** LED. It does not spawn a fresh announcement: if the boot announcement has not yet been acknowledged, its retrying task carries the new IP on the next attempt; if it was already acknowledged at boot, the hub learns a new IP through the server's regular 60-second poll instead.
 4. **Control continues**: Throughout the entire outage, the grow tent regulation (humidity/temperature control, relay actuation) keeps running independently. The Pico does **not** reboot on WiFi loss — only the connection is affected.

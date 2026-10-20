@@ -56,9 +56,9 @@ try:
 except Exception as e:
     print("GP0 check error:", e)
 
-# No Wi-Fi configured — go straight to AP provisioning
+# No Wi-Fi configured — go straight to the offline (AP) operating mode
 if not cfg["wifi"].get("ssid"):
-    print("No Wi-Fi configured — entering provisioning mode")
+    print("No Wi-Fi configured — entering offline (AP) mode")
     _force_provision = True
 
 # Bring up Wi-Fi
@@ -69,6 +69,9 @@ wlan, ip = connect_wifi(cfg["wifi"],
 _ap_mode = _force_provision or (ip is None)
 
 if _ap_mode:
+    # Offline (AP) operating mode: no network to join, so the unit brings up
+    # its own open AP and regulates against its held targets while serving the
+    # grower directly (see REFERENCE §Offline (AP) operating mode).
     ap = start_ap_provisioning(cfg)
     io.start_provisioning_blink(stop_event=stop_event)
     state.attach_wlan_info(ap, cfg)
@@ -88,17 +91,27 @@ else:
 # scope, before asyncio.run() below: it must run before control_loop() is ever
 # created so the primed relay latch is seen. Blocking flash reads are sanctioned
 # only in this slot (nothing scheduled yet, WDT not yet armed).
-runtime_state.restore(cfg, io, _ap_mode)
+runtime_state.restore(cfg, io)
 
 
 async def main():
     start_metrics()
+    # Arm the hardware watchdog exactly once, here: every blocking boot
+    # operation has already run at module scope above (connect_wifi,
+    # presolve_boot_hub, AP bring-up, runtime_state.restore). Once armed the
+    # rp2 watchdog cannot be stopped, so nothing may block between this point
+    # and control_loop()'s first feed in either branch below.
+    wdt = WDT(timeout=8000)
     if _ap_mode:
-        # AP provisioning mode — no announce, no control loop, no watchdog
-        # Relays stay in boot-safe OFF state
+        # Offline (AP) operating mode — no hub to answer, so the unit regulates
+        # on its own: control loop runs with the stale-sensor safety cut. The
+        # only additions STA makes — announce, reboot scheduler, Wi-Fi watchdog
+        # — stay off: there is no network to speak of.
+        asyncio.create_task(control_loop(
+            cfg, ap, io, sensor, stop_event=stop_event, wdt=wdt,
+            sensor_fault_cut=True))
         await start_server(cfg, ap, io, sensor, mode="ap")
     else:
-        wdt = WDT(timeout=8000)
         from app.reboot_scheduler import reboot_scheduler_loop
         asyncio.create_task(reboot_scheduler_loop(
             cfg, wlan, io, sensor, stop_event=stop_event))

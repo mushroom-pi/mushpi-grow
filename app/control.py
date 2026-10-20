@@ -4,6 +4,20 @@ import utime as time
 
 from .state import status, setpoints
 
+# Safety threshold for offline (AP) operation: when the unit runs without a
+# network, a sensor fault that leaves the newest plausible reading older than
+# this many seconds cuts the outputs instead of regulating on stale values
+# (see control_loop's sensor_fault_cut). A firmware constant, deliberately NOT
+# a config.json key — same philosophy as the announce budgets: an
+# operator-tunable safety threshold invites misconfiguration.
+_SENSOR_STALE_CUT_S = 120
+
+# Offline sensor-fault latch: True between the cut and the next fresh
+# plausible reading. Written ONLY by control_loop() when it runs with
+# sensor_fault_cut=True (offline mode), so a connected unit never latches it.
+# Read by api.py's immediate POST /setpoints re-evaluation — see fault_latched().
+_sensor_fault_hold = False
+
 # Per-relay "time switched ON" in ticks_ms; None = not currently ON-or-in-runtime-window
 _on_since = {"humidifier": None, "fan": None, "heater": None}
 
@@ -38,6 +52,14 @@ def prime_control_enabled(enabled, relays_latched=False):
 
 def is_control_enabled():
     return control_enabled_event.is_set()
+
+def fault_latched():
+    """True while the offline sensor-fault cut is holding the outputs off
+    (stale reading, sensor_fault_cut mode). The only writer is control_loop()
+    with sensor_fault_cut=True, so this is never set on a connected unit.
+    api.py consults it so POST /setpoints' immediate re-evaluation cannot
+    re-energise a relay against stale values while the cut is active."""
+    return _sensor_fault_hold
 
 def _can_turn_off(relay, min_runtime_ms):
     since = _on_since[relay]
@@ -110,12 +132,19 @@ def evaluate_hysteresis(cfg, io):
         else:
             _turn_off(io, "heater", Mr)
 
-async def control_loop(cfg, wlan, io, sensor, stop_event=None, wdt=None):
+async def control_loop(cfg, wlan, io, sensor, stop_event=None, wdt=None,
+                       sensor_fault_cut=False):
+    """Hysteresis control loop. sensor_fault_cut=True (wired by main.py for
+    offline/AP operation) adds the stale-reading safety cut described on
+    _SENSOR_STALE_CUT_S. The parameter keeps WiFi knowledge out of this module
+    — the loop itself never inspects the link; mode-gated behaviour is passed
+    in by the caller."""
     P = cfg["control"]["period_s"]
     # Primed from runtime.json at boot (see prime_control_enabled): a restored
     # hand-set position counts as already latched-off-safe, so the first pass of
     # a disabled loop does not relays_off() and wipe it.
     relays_latched = _relays_latched_init
+    global _sensor_fault_hold
 
     while not (stop_event and stop_event.is_set()):
         # WiFi monitoring/reconnect handled by wifi_watchdog_loop
@@ -139,7 +168,33 @@ async def control_loop(cfg, wlan, io, sensor, stop_event=None, wdt=None):
         else:
             # Control enabled: reset latch and run hysteresis actuation.
             relays_latched = False
-            evaluate_hysteresis(cfg, io)
+            if sensor_fault_cut:
+                # Offline mode has no hub watching the readings, so a faulted
+                # sensor must not keep driving relays from stale values.
+                # time.time() deltas are valid offline — the RTC ticks without
+                # NTP, and sensor.py computes last_ok_age_s the same way.
+                # last_sensor_ok_at None (never read) needs no special case:
+                # evaluate_hysteresis's existing None guards already suppress
+                # actuation before the first plausible read.
+                last_ok = status["last_sensor_ok_at"]
+                stale = last_ok is not None and (time.time() - last_ok) > _SENSOR_STALE_CUT_S
+                if stale:
+                    if not _sensor_fault_hold:
+                        _sensor_fault_hold = True
+                        print("control: sensor stale beyond " + str(_SENSOR_STALE_CUT_S) +
+                              "s - outputs cut until a good reading returns")
+                    # Hold the cut every iteration (idempotent GPIO writes): a
+                    # manual POST /outputs must not keep a relay energised
+                    # against a stale reading while the cut is active.
+                    io.relays_off()
+                    reset_on_since()
+                else:
+                    if _sensor_fault_hold:
+                        _sensor_fault_hold = False
+                        print("control: fresh sensor read - resuming regulation")
+                    evaluate_hysteresis(cfg, io)
+            else:
+                evaluate_hysteresis(cfg, io)
 
         # Reclaim fragmented heap before sleeping (prevents OOM on long runs)
         try:

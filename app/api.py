@@ -5,10 +5,10 @@ from microdot import Microdot, Response, send_file
 
 from .state import status, setpoints, devices, hub, get_system_info, _SOFTWARE_VERSION, _API_VERSION
 from .metrics import system_snapshot
-from .control import is_control_enabled, set_control_enabled, evaluate_hysteresis, reset_on_since, mark_relay_off, mark_relay_on
+from .control import is_control_enabled, set_control_enabled, evaluate_hysteresis, reset_on_since, mark_relay_off, mark_relay_on, fault_latched
 from .config_loader import save_config
-from .config_validator import PIN_ROLES, VALID_GPIO_HINT, gpio_reject_reason
-from .shutdown import reboot, soft_reboot
+from .config_validator import PIN_ROLES, VALID_GPIO_HINT, gpio_reject_reason, _append_duplicate_gpio_errors
+from .shutdown import reboot, soft_reboot, stop_event
 from . import uptime
 from . import runtime_state
 
@@ -23,11 +23,6 @@ try:
         _UNIT_HTML = f.read()
 except OSError:
     _UNIT_HTML = '<html><body><h1>Mushroom Pi</h1><p>Error loading unit page.</p></body></html>'
-
-# AP provisioning is view-only: every control POST is refused with this 403
-# body before any side effect, so "view-only" holds at the firmware level,
-# not just in the page UI. /reboot and /provision keep their own semantics.
-_AP_VIEW_ONLY_ERROR = {"ok": False, "error": "controls are only available in STA mode - AP provisioning is view-only"}
 
 # Explicit Content-Type for the static route below. Keyed by the asset
 # extension; the vendored Microdot would infer the same values from its
@@ -97,9 +92,10 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
     @app.get('/ui')
     def _ui(req):
-        # Always HTML, in both modes: the AP variant renders a view-only
-        # provisioning page (banner + no controls), the STA variant the full
-        # status-and-control page.
+        # Always HTML, in both modes: the offline (AP) variant is the same
+        # status-and-control page with an offline banner and a link to the
+        # Wi-Fi setup form — fully operable, pin remapping included; the
+        # STA variant is the plain connected page.
         return _unit_page()
 
     @app.get('/static/<string:filename>')
@@ -108,17 +104,19 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
         # (1 KB chunks from Microdot's send_file) so they are browser-cacheable
         # and do not live in the heap as part of the page string. Content-Type
         # is passed explicitly from _STATIC_CONTENT_TYPES rather than left to
-        # the vendored Microdot's inference. max_age is deliberately short:
-        # this Microdot has no ETag/304 support, so there is no cheap
-        # revalidation once a browser holds a copy. The `<string:...>` segment
-        # type matches a single path component (no slashes), which keeps a
-        # path-traversal shape out of the route entirely.
+        # the vendored Microdot's inference. max_age is deliberately 0: this
+        # Microdot has no ETag/304 support, so a cached copy cannot cheaply
+        # revalidate — with a long max_age a browser would keep serving the
+        # previous firmware's JS for an hour after a reflash. Re-fetching on
+        # every load is cheap on the unit's own link. The `<string:...>`
+        # segment type matches a single path component (no slashes), which
+        # keeps a path-traversal shape out of the route entirely.
         try:
             ext = filename.rsplit('.', 1)[-1].lower()
             return send_file('app/static/' + filename,
                              content_type=_STATIC_CONTENT_TYPES.get(
                                  ext, 'application/octet-stream'),
-                             max_age=3600)
+                             max_age=0)
         except OSError:
             return {"ok": False, "error": "static asset missing"}, 404
 
@@ -143,10 +141,6 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
     @app.post('/setpoints')
     def _setsp(req):
-        # Mode guard: AP provisioning is view-only. Rejected BEFORE any
-        # side effect (no setpoint mutation, no hysteresis eval).
-        if mode == "ap":
-            return _AP_VIEW_ONLY_ERROR, 403
         try:
             data = req.json
             if "temperature" in data: setpoints["temperature"] = int(data["temperature"])
@@ -163,8 +157,10 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
             # Immediate re-evaluation so relays react now rather than waiting
             # for the next control_loop tick. Only when control is enabled —
-            # if disabled, the loop owns relay state (latched off).
-            if is_control_enabled():
+            # if disabled, the loop owns relay state (latched off) — and never
+            # while the offline sensor-fault cut is latched, which would drive
+            # relays from the very stale reading the cut is holding off on.
+            if is_control_enabled() and not fault_latched():
                 try:
                     evaluate_hysteresis(cfg, io)
                 except Exception as e:
@@ -179,10 +175,6 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
     @app.post('/setup')
     def _setdevices(req):
-        # Mode guard: AP provisioning is view-only. Rejected BEFORE any
-        # pin remap, polarity mutation, or config write.
-        if mode == "ap":
-            return _AP_VIEW_ONLY_ERROR, 403
         try:
             data = req.json
             if "pins" in data:
@@ -213,6 +205,15 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
                     for _k2 in ("dht", "humidifier", "fan", "heater"):
                         if _k2 != _k and _merged.get(_k2) == _v:
                             return {"ok": False, "error": "GPIO " + str(_v) + " is already assigned to " + _k2}, 400
+                # Finally run the boot duplicate rule itself over the merged
+                # map: what this endpoint accepts must be a mapping the unit
+                # would also boot with, so the guarantee is provable rather
+                # than emergent. Same-pin re-assigns and within-request swaps
+                # yield a distinct map, so they stay admitted as above.
+                _errs = []
+                _append_duplicate_gpio_errors(_merged, _errs)
+                if _errs:
+                    return {"ok": False, "error": _errs[0]}, 400
 
             # Apply active_high AFTER all pin validation so a rejected request
             # leaves RAM unchanged, but BEFORE the remap calls below —
@@ -226,6 +227,15 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
                 if "humidifier" in pins: io.remap("humidifier", pins)
                 if "fan" in pins: io.remap("fan", pins)
                 if "heater" in pins: io.remap("heater", pins)
+                # io.remap() re-runs IO.__init__(), which resets _hb_task/
+                # _hb_enabled: any live heartbeat or provisioning blink exits
+                # and its finally turns the LED off. Re-arm the mode-
+                # appropriate indicator — without this the offline double-blink
+                # dies on save and the unit looks bricked until reboot.
+                if mode == "ap":
+                    io.start_provisioning_blink(stop_event=stop_event)
+                else:
+                    io.start_led_heartbeat(period_ms=800, stop_event=stop_event)
 
             # Persist to flash so GPIO mapping survives reboot
             cfg["pins"] = {k: devices["pins"][k] for k in ("dht", "humidifier", "fan", "heater")}
@@ -241,10 +251,21 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
         except Exception as e:
             return {"ok": False, "error": str(e)}, 400
 
+    @app.get('/provision')
+    def _provision_form(req):
+        # The Wi-Fi setup form, served in both operating modes at a stable
+        # URL — the unit page's offline banner links here. Microdot keys its
+        # routes by method, so this GET and the POST below register on the
+        # same path without conflict. The POST stays mode-guarded: on a
+        # connected (STA) unit the form loads but its submission is rejected
+        # with 403 before any config write or reboot.
+        html = _PROVISIONING_HTML.replace("DEVNAME", cfg.get("device_name", "pico"))
+        return Response(html, status_code=200, headers={'Content-Type': 'text/html'})
+
     @app.post('/provision')
     def _provision(req):
-        # Mode guard: AP provisioning only. Reject in STA BEFORE
-        # any side effect — no save_config, no config mutation, no reboot.
+        # Mode guard: offline (AP) operating mode only. Reject on a
+        # connected unit BEFORE any save_config, config mutation, or reboot.
         if mode != "ap":
             return {"ok": False, "error": "provisioning is only available in AP mode"}, 403
         try:
@@ -297,10 +318,6 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
     @app.post('/outputs')
     def _setoutputs(req):
-        # Mode guard: AP provisioning is view-only. Rejected BEFORE any
-        # relay write or config mutation.
-        if mode == "ap":
-            return _AP_VIEW_ONLY_ERROR, 403
         try:
             data = req.json or {}
             valid_keys = ("humidifier", "fan", "heater")
@@ -345,10 +362,6 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
     @app.post('/control')
     def _set_control(req):
-        # Mode guard: AP provisioning is view-only. Rejected BEFORE the
-        # enable flag changes and before relays are touched.
-        if mode == "ap":
-            return _AP_VIEW_ONLY_ERROR, 403
         try:
             body = req.json or {}
         except Exception:
@@ -408,15 +421,15 @@ def make_app(cfg, wlan, io, sensor, mode="sta"):
 
     @app.get("/")
     def _get_all(req):
-        if mode == "ap":
-            html = _PROVISIONING_HTML.replace("DEVNAME", cfg.get("device_name", "pico"))
-            return Response(html, status_code=200, headers={'Content-Type': 'text/html'})
         # Content negotiation for the unit page, strict on purpose: HTML only
         # when the client asks for text/html AND does not mention
         # application/json at all. The hub's axios poll sends
         # "application/json, text/plain, */*" and must keep getting JSON;
         # browsers send text/html without application/json and get the page.
-        # Microdot's Headers lookup is case-insensitive.
+        # Microdot's Headers lookup is case-insensitive. The same in both
+        # operating modes — the unit page is the landing page offline as well
+        # as connected, and the Wi-Fi setup form has its own route
+        # (GET /provision).
         accept = req.headers.get('Accept') or ''
         if 'text/html' in accept and 'application/json' not in accept:
             return _unit_page()

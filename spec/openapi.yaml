@@ -4,21 +4,27 @@ info:
   version: 0.8.4
   description: >-
     REST API served by every Mushroom Pi Pico growing unit on port 5000.
-    In STA mode every endpoint returns JSON except GET /ui, which serves
+    Every endpoint returns JSON except GET /ui, which always serves
     the unit's self-documenting status-and-control page (text/html), and
     GET /static/{filename}, which serves the pages' same-origin static
     assets — application/javascript (unit.js) and image/svg+xml
-    (favicon.svg, shared with the AP provisioning form); GET / also
+    (favicon.svg, shared with the setup form); GET / also
     answers a browser with
     that page via content negotiation
     (Accept containing text/html but not application/json) while API
-    clients keep receiving JSON. In AP provisioning mode (open network,
-    192.168.4.1) GET / returns an HTML provisioning setup form
-    (text/html) instead of JSON, GET /ui serves a view-only variant of
-    the unit page, and control POSTs (/setpoints, /outputs, /control,
-    /setup) are rejected with 403 (view-only); POST /provision accepts
-    Wi-Fi credentials, writes config.json, and reboots the unit into STA
-    mode.
+    clients keep receiving JSON. This is the same in every operating
+    mode: the unit page is the landing page, and the Wi-Fi setup form
+    has its own route, GET /provision (text/html). In the offline (AP)
+    operating mode
+    (open network, 192.168.4.1) the unit keeps regulating: the control
+    loop runs against the persisted targets and the control POSTs
+    (/setpoints, /outputs, /control) are accepted and persist exactly as
+    when connected, and GET /ui and GET / (for HTML browsers) serve the
+    same unit page with an
+    offline banner linking to GET /provision — it stays fully operable, pin remapping
+    (POST /setup) included. POST /provision accepts Wi-Fi credentials,
+    writes config.json, and reboots the unit into STA mode, but only
+    while the unit runs in that offline mode.
     On boot (and on runtime re-announce) the unit POSTs its presence to
     the hub server — URL from config.json `hub_url`, authenticated via
     the `X-Pico-Secret` header. That announce payload is not a path
@@ -320,7 +326,9 @@ paths:
       summary: Change setpoints (persists to flash — survives reboot)
       description: >-
         Updates one or both setpoints. Triggers immediate hysteresis
-        re-evaluation when the control loop is enabled. The applied values are
+        re-evaluation when the control loop is enabled — except while the
+        offline sensor-fault cut is latched, when the readings are stale
+        and the loop is holding the outputs off. The applied values are
         persisted to flash so they survive a reboot.
       responses:
         '200':
@@ -343,23 +351,6 @@ paths:
                 properties:
                   error:
                     type: string
-        '403':
-          description: >-
-            Unit is in AP provisioning mode (view-only) — rejected before
-            any setpoint mutation or hysteresis re-evaluation.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                    enum: [false]
-                  error:
-                    type: string
-              example:
-                ok: false
-                error: controls are only available in STA mode - AP provisioning is view-only
       tags:
         - setpoints
       requestBody:
@@ -404,6 +395,14 @@ paths:
         - setup
     post:
       summary: Change devices setup (persists to flash — survives reboot)
+      description: >-
+        Accepted in both operating modes (STA and offline AP). After the
+        per-role GPIO checks and the merged-view duplicate rule, the full
+        merged map (current mapping overlaid with this request's pins) is
+        validated against the boot duplicate-GPIO rule before anything is
+        written: a mapping this endpoint accepts is one the unit would
+        also boot with. Re-assigning a device to the pin it already holds,
+        and within-request pin swaps, stay admitted.
       responses:
         '200':
           description: Updated devices configuration
@@ -440,23 +439,6 @@ paths:
                 properties:
                   error:
                     type: string
-        '403':
-          description: >-
-            Unit is in AP provisioning mode (view-only) — rejected before
-            any pin remap, polarity mutation, or config write.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                    enum: [false]
-                  error:
-                    type: string
-              example:
-                ok: false
-                error: controls are only available in STA mode - AP provisioning is view-only
         '500':
           description: Config persist to flash failed
           content:
@@ -574,23 +556,6 @@ paths:
                   value:
                     ok: false
                     error: 'the body must include at least one of: "humidifier", "fan", "heater"'
-        '403':
-          description: >-
-            Unit is in AP provisioning mode (view-only) — rejected before
-            any relay write.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                    enum: [false]
-                  error:
-                    type: string
-              example:
-                ok: false
-                error: controls are only available in STA mode - AP provisioning is view-only
       tags:
         - outputs
       requestBody:
@@ -657,23 +622,6 @@ paths:
                     type: string
               example:
                 error: 'send {"enabled": true|false}'
-        '403':
-          description: >-
-            Unit is in AP provisioning mode (view-only) — rejected before
-            the enable flag changes and before relays are touched.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                    enum: [false]
-                  error:
-                    type: string
-              example:
-                ok: false
-                error: controls are only available in STA mode - AP provisioning is view-only
       tags:
         - control
       requestBody:
@@ -689,14 +637,33 @@ paths:
             example:
               enabled: false
   /provision:
+    get:
+      summary: Wi-Fi setup form
+      description: >-
+        Serves the HTML Wi-Fi credential setup form (app/provision.html,
+        Content-Type: text/html) in both operating modes, so the
+        destination is a stable URL linked from the unit page's offline
+        banner. The form submits to POST /provision below, which stays
+        mode-guarded: on a connected (STA) unit the form loads but its
+        submission is rejected with 403 before any configuration is
+        written or a reboot is scheduled.
+      responses:
+        '200':
+          description: HTML Wi-Fi setup form
+          content:
+            text/html:
+              schema:
+                type: string
+      tags:
+        - provisioning
     post:
-      summary: Provision Wi-Fi credentials (AP mode only)
+      summary: Provision Wi-Fi credentials (offline (AP) mode only)
       description: >-
         Accepts Wi-Fi credentials, writes them to config.json, and
-        schedules a reboot in 2 seconds. Only available when the unit
-        is in AP provisioning mode: in STA (normal) mode the request is
-        rejected with 403 before any configuration is written or a
-        reboot is scheduled.
+        schedules a reboot in 2 seconds. Only available while the unit
+        runs in the offline (AP) operating mode: on a connected (STA)
+        unit the request is rejected with 403 before any configuration
+        is written or a reboot is scheduled.
       requestBody:
         required: true
         content:
@@ -769,7 +736,7 @@ paths:
                   value:
                     error: wifi.ssid is required
         '403':
-          description: Not in AP provisioning mode (rejected before any config write or reboot)
+          description: Not in the offline (AP) operating mode (rejected before any config write or reboot)
           content:
             application/json:
               schema:
@@ -792,22 +759,26 @@ paths:
     get:
       summary: Get all the system's current parameters
       description: >-
-        In STA mode returns a full JSON snapshot of system state —
-        including the additive `hub` object. Content negotiation (STA
-        path only, strict predicate): when the request's Accept header
-        contains text/html AND does not contain application/json, the
-        unit's status-and-control page (Content-Type: text/html, same as
-        GET /ui, including its same-origin static assets) is
-        returned instead of JSON. Clients whose Accept mentions
-        application/json — the hub's axios poll sends
-        "application/json, text/plain, */*" — always receive JSON. In AP
-        provisioning mode returns an HTML setup form (Content-Type:
-        text/html) — see POST /provision.
+        Returns a full JSON snapshot of system state — including the
+        additive `hub` object — in every operating mode. Content
+        negotiation (strict predicate, both modes): when the request's
+        Accept header contains text/html AND does not contain
+        application/json, the unit's status-and-control page
+        (Content-Type: text/html, same as GET /ui, including its
+        same-origin static assets) is returned instead of JSON. Clients
+        whose Accept mentions application/json — the hub's axios poll
+        sends "application/json, text/plain, */*" — always receive
+        JSON. So the unit page is the landing page offline as well as
+        connected; while offline the unit is still regulating against
+        its targets and the page shows an offline banner linking to the
+        Wi-Fi setup form at GET /provision.
       responses:
         '200':
           description: >-
-            Full system snapshot (STA mode, application/json) or
-            HTML provisioning form (AP mode, text/html).
+            Full system snapshot (application/json) or the unit
+            status-and-control page (text/html when the Accept predicate
+            above is met) — the same content negotiation in both
+            operating modes.
           content:
             application/json:
               schema:
@@ -1018,10 +989,9 @@ paths:
               schema:
                 type: string
                 description: >-
-                  HTML provisioning form (AP mode) or the unit
-                  status-and-control page (STA mode when the browser
-                  Accept predicate above is met) — the page is the same
-                  response shape as GET /ui.
+                  The unit status-and-control page — the same response
+                  shape as GET /ui — served in both operating modes when
+                  the browser Accept predicate above is met.
       tags:
         - monitoring
   /ui:
@@ -1029,13 +999,17 @@ paths:
       summary: Unit status and control page
       description: >-
         Self-documenting HTML page served by the unit itself, always
-        text/html in both operating modes. STA mode: full status and
+        text/html in both operating modes — the same unit page that
+        GET / serves to HTML browsers, kept as a stable alias for
+        existing links and bookmarks. STA mode: full status and
         control (identity, board condition, climate and outputs,
-        controls, devices, PIN mapping, hub state, reboot). AP
-        provisioning mode: a view-only variant with a provisioning
-        banner — the locking is enforced by the firmware's AP-mode 403
-        guards on the control POSTs, not merely by the page. The file is
-        hand-authored (app/unit.html) and served from firmware memory, and
+        controls, devices, PIN mapping, hub state, reboot). Offline
+        (AP) mode: the same page with an offline banner — it stays
+        fully operable because the control loop runs offline, regulating
+        against the held targets (targets, loop switch, devices and pin
+        mapping are accepted and persist; the reboot card is shown). The
+        file is hand-authored (app/unit.html) and served from firmware
+        memory, and
         loads same-origin static assets — GET /static/unit.js (script)
         and GET /static/favicon.svg (icon) — served by this unit itself.
         There is no CDN and no third-party resource, so the page still
@@ -1053,16 +1027,18 @@ paths:
     get:
       summary: Unit page static assets
       description: >-
-        Same-origin static page assets for the unit page and the AP
-        provisioning form (app/static/). GET /static/unit.js serves the
+        Same-origin static page assets for the unit page and the offline
+        Wi-Fi setup form (app/static/). GET /static/unit.js serves the
         unit page's JavaScript as application/javascript;
         GET /static/favicon.svg serves the Mushroom Pi icon as
         image/svg+xml (referenced by both pages' `rel=icon` links).
         Streamed from flash in 1 KB chunks by Microdot's send_file, with
-        Cache-Control: max-age=3600. This Microdot build has no ETag or
+        Cache-Control: max-age=0. This Microdot build has no ETag or
         If-None-Match/304 support, so a browser cannot cheaply revalidate
-        a copy it holds — hence the conservative max-age and no version
-        query string. The filename path parameter is constrained to the
+        a copy it holds — hence assets are re-fetched on every load and no
+        version query string is published: a reflash is picked up on the
+        next load rather than the browser serving the previous firmware's
+        JS for an hour. The filename path parameter is constrained to the
         complete asset set (unit.js, favicon.svg) — no open wildcard is
         published. If the asset is missing from flash the handler
         returns 404 with {"ok": false, "error": "static asset missing"}.

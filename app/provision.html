@@ -61,6 +61,23 @@
             margin-bottom: 14px;
         }
 
+        .uip {
+            border: 1px solid #C66F2F;
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-bottom: 6px;
+            font-size: 13px;
+            color: #9AA6A0;
+        }
+
+        .uip a {
+            display: block;
+            color: #7DD3FC;
+            font-weight: 700;
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+
         label {
             display: block;
             font-size: 13px;
@@ -204,6 +221,12 @@
         <div class="info" id="info">Enter credentials.</div>
         <div class="dev" id="dev"></div>
 
+        <div class="uip">
+            <a href="/">Open the unit's status &amp; control page →</a>
+            Works offline: read the climate, change the targets, toggle the loop and the devices — even while
+            this unit has no network.
+        </div>
+
         <form id="f">
             <label for="s">SSID</label>
             <input id="s" type="text" required>
@@ -220,11 +243,11 @@
             <div class="ss">Restarting...</div>
             <div class="lg">
                 <div class="lr"><span class="ld o"></span><span>OFF - Booting</span></div>
-                <div class="lr"><span class="ld p"></span><span>Blink - Wrong password</span></div>
-                <div class="lr"><span class="ld s"></span><span>Solid - Wi-Fi OK</span></div>
-                <div class="lr"><span class="ld h"></span><span>Heartbeat - Online</span></div>
+                <div class="lr"><span class="ld p"></span><span>Double-blink - Working, no network (wrong password lands here - the unit keeps regulating)</span></div>
+                <div class="lr"><span class="ld s"></span><span>Solid - Wi-Fi connected, hub announcement pending</span></div>
+                <div class="lr"><span class="ld h"></span><span>Heartbeat - Acknowledged by the hub</span></div>
             </div>
-            <div class="sf">Blinking? Password wrong - reconnect &amp; retry.</div>
+            <div class="sf">Double-blinking? It did not join your network - reconnect to its AP &amp; retry.</div>
         </div>
 
         <div class="foot">Mushroom Pi Provisioning · 192.168.4.1:5000</div>

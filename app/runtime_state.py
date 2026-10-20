@@ -156,23 +156,25 @@ def save_outputs(fan, humidifier):
     _write_field("outputs", {"fan": bool(fan), "humidifier": bool(humidifier)})
 
 
-def restore(cfg, io, ap_mode):
+def restore(cfg, io):
     """Single boot rehydrate entry point — called once from main.py at module
     scope, before asyncio.run() starts the event loop. Never raises into the
     boot path beyond what _load() cannot already see; flash is read-only here.
 
-    Order matters (see REFERENCE §Startup Sequence):
+    Both boot modes rehydrate identically: the offline (AP) mode runs the
+    control loop just like STA, so there is no AP-specific skip any more — a
+    persisted loop-off position restored at boot is live and meaningful on
+    either network. Order matters (see REFERENCE §Startup Sequence):
       1. targets are written IN PLACE into state.setpoints — the dict is shared
          with api.py/control.py and must never be reassigned;
       2. the loop flag and control_loop()'s first-pass relay latch are primed
          together via control.prime_control_enabled() — without a primed latch,
          a disabled loop's first pass would call relays_off() and wipe the
          restored hand-set positions within one period_s;
-      3. loop off (STA only): heater driven off unconditionally FIRST, then
-         fan/humidifier applied per the stored values;
-      4. loop on: no relay is touched — the loop's own hysteresis owns actuation;
-      5. AP mode: view-only provisioning — targets and loop flag only, all relay
-         writes skipped so the outputs stay boot-safe OFF.
+      3. loop off: heater driven off unconditionally FIRST, then fan/humidifier
+         applied per the stored values;
+      4. loop on: no relay is touched — the loop's own hysteresis owns
+         actuation.
 
     cfg is accepted for signature parity with the other boot callers
     (presolve_boot_hub, connect_wifi); defaults come from state.py, not config,
@@ -187,7 +189,7 @@ def restore(cfg, io, ap_mode):
                 setpoints[key] = sp[key]
                 print("runtime: restored setpoints." + key + " = " + str(sp[key]))
 
-    # 2/3/4/5. Loop flag (+ relay restore when it is off).
+    # 2/3/4. Loop flag (+ relay restore when it is off).
     enabled = data.get("control_enabled", True)
     if enabled:
         control.prime_control_enabled(True)
@@ -195,17 +197,9 @@ def restore(cfg, io, ap_mode):
         # Loop on: touch no relays — hysteresis drives them from the targets.
         return
 
-    if ap_mode:
-        # AP provisioning is view-only: the control loop never runs and relays
-        # stay boot-safe OFF. Still apply the flag so the page reflects the
-        # grower's persisted choice after the unit joins Wi-Fi.
-        control.prime_control_enabled(False)
-        print("runtime: control loop restored DISABLED")
-        print("runtime: AP mode — outputs not restored (relays stay off)")
-        return
-
-    # Loop off in STA mode: prime the latch so the restored positions below
-    # survive control_loop()'s first pass, then drive the relays.
+    # Loop off: prime the latch so the restored positions below survive
+    # control_loop()'s first pass, then drive the relays. Same in STA and
+    # offline mode — both run the loop.
     control.prime_control_enabled(False, relays_latched=True)
     print("runtime: control loop restored DISABLED")
 

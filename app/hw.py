@@ -80,7 +80,9 @@ class IO:
             self._hb_task = None
 
     def start_provisioning_blink(self, stop_event=None):
-        """Asymmetric blink: 200 on / 200 off / 200 on / 800 off — provisioning indicator."""
+        """Asymmetric blink: 200 on / 200 off / 200 on / 800 off — the offline/working
+        indicator: unit is regulating but has no usable Wi-Fi link (name kept for its
+        original boot-provisioning use)."""
         # cancel any existing heartbeat task first
         if self._hb_task:
             try: self._hb_task.cancel()
