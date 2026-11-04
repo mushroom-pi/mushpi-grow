@@ -3,7 +3,17 @@ import utime as time
 # ── Software version ──────────────────────────────────────────────
 # Bump on every release.  Single source of truth for the firmware
 # version (returned by GET /system and GET /).
-_SOFTWARE_VERSION = "0.8.4"
+_SOFTWARE_VERSION = "0.9.0"
+
+# ── API contract version ──────────────────────────────────────────
+# Pico↔Server REST contract generation.  Bump ONLY on a breaking change
+# to that contract (endpoint removed/renamed, incompatible request/
+# response shape, changed semantics); additive changes do NOT bump it.
+# Unlike _SOFTWARE_VERSION this may move on `dev` — it is a wire-
+# contract change, not a release version.  If it bumps,
+# _SOFTWARE_VERSION must also get at least a MINOR bump.
+# Canonical documentation: spec/openapi.yaml.
+_API_VERSION = 1
 
 # global-ish dictionaries the whole app can import
 setpoints = {"temperature": 25, "humidity": 60}
@@ -17,6 +27,13 @@ devices = {
     "pins": { "dht": 4, "humidifier": 6, "fan": 7, "heater": 8 },
     "active_high": False,
 }
+# Hub-connection state, mutated IN PLACE. Single writer: app/announce.py
+# (announce_then_retry_once sets configured at loop start, clears connected at
+# loop start and after each failed attempt, and sets it on a 2xx ack). The
+# unit has no live view of the hub between announce attempts — "connected"
+# means "the hub acknowledged the most recent announce", not "the hub is
+# reachable right now". GET / exposes it; never reassign this dict.
+hub = {"configured": False, "connected": False}
 
 _system_info = None
 software_info = None

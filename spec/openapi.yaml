@@ -1,13 +1,37 @@
 openapi: 3.0.0
 info:
   title: Pico Unit API
-  version: 0.8.4
+  version: 0.9.0
   description: >-
-    REST API served by every MushPi Pico growing unit on port 5000.
-    In STA mode all endpoints return JSON. In AP provisioning mode
-    (open network, 192.168.4.1) GET / returns an HTML setup form
-    (text/html) instead of JSON; POST /provision accepts Wi-Fi
-    credentials, writes config.json, and reboots the unit into STA mode.
+    REST API served by every Mushroom Pi Pico growing unit on port 5000.
+    Every endpoint returns JSON except GET /ui, which always serves
+    the unit's self-documenting status-and-control page (text/html), and
+    GET /static/{filename}, which serves the pages' same-origin static
+    assets — application/javascript (unit.js) and image/svg+xml
+    (favicon.svg, shared with the setup form); GET / also
+    answers a browser with
+    that page via content negotiation
+    (Accept containing text/html but not application/json) while API
+    clients keep receiving JSON. This is the same in every operating
+    mode: the unit page is the landing page, and the Wi-Fi setup form
+    has its own route, GET /provision (text/html). In the offline (AP)
+    operating mode
+    (open network, 192.168.4.1) the unit keeps regulating: the control
+    loop runs against the persisted targets and the control POSTs
+    (/setpoints, /outputs, /control) are accepted and persist exactly as
+    when connected, and GET /ui and GET / (for HTML browsers) serve the
+    same unit page with an
+    offline banner linking to GET /provision — it stays fully operable, pin remapping
+    (POST /setup) included. POST /provision accepts Wi-Fi credentials,
+    writes config.json, and reboots the unit into STA mode, but only
+    while the unit runs in that offline mode.
+    On boot (and on runtime re-announce) the unit POSTs its presence to
+    the hub server — URL from config.json `hub_url`, authenticated via
+    the `X-Pico-Secret` header. That announce payload is not a path
+    served by this API; it is documented in
+    components.schemas.AnnouncePayload and carries `firmware_version`
+    (mirrors `system.software.version`) and `api_version` (the
+    Pico↔Server REST contract generation, currently 1).
 servers:
   - url: '{{baseUrl}}'
 paths:
@@ -105,7 +129,7 @@ paths:
                             description: Whether the daily scheduled reboot is enabled
                           hour:
                             type: integer
-                            description: Target hour for scheduled reboot (0-23, local time)
+                            description: Target hour for scheduled reboot (0-23, local time = UTC + reboot.ntp_tz_offset_hours; 0 means UTC)
                           minute:
                             type: integer
                             description: Target minute for scheduled reboot (0-59)
@@ -127,7 +151,7 @@ paths:
                     properties:
                       version:
                         type: string
-                        description: Firmware version (e.g. "0.8.4")
+                        description: Firmware version (e.g. "0.9.0")
                       device_name:
                         type: string
                         nullable: true
@@ -217,7 +241,7 @@ paths:
                             description: Whether the daily scheduled reboot is enabled
                           hour:
                             type: integer
-                            description: Target hour for scheduled reboot (0-23, local time)
+                            description: Target hour for scheduled reboot (0-23, local time = UTC + reboot.ntp_tz_offset_hours; 0 means UTC)
                           minute:
                             type: integer
                             description: Target minute for scheduled reboot (0-59)
@@ -299,10 +323,13 @@ paths:
       tags:
         - setpoints
     post:
-      summary: Change setpoints
+      summary: Change setpoints (persists to flash — survives reboot)
       description: >-
         Updates one or both setpoints. Triggers immediate hysteresis
-        re-evaluation when the control loop is enabled.
+        re-evaluation when the control loop is enabled — except while the
+        offline sensor-fault cut is latched, when the readings are stale
+        and the loop is holding the outputs off. The applied values are
+        persisted to flash so they survive a reboot.
       responses:
         '200':
           description: Updated setpoints
@@ -368,6 +395,14 @@ paths:
         - setup
     post:
       summary: Change devices setup (persists to flash — survives reboot)
+      description: >-
+        Accepted in both operating modes (STA and offline AP). After the
+        per-role GPIO checks and the merged-view duplicate rule, the full
+        merged map (current mapping overlaid with this request's pins) is
+        validated against the boot duplicate-GPIO rule before anything is
+        written: a mapping this endpoint accepts is one the unit would
+        also boot with. Re-assigning a device to the pin it already holds,
+        and within-request pin swaps, stay admitted.
       responses:
         '200':
           description: Updated devices configuration
@@ -390,7 +425,13 @@ paths:
                   active_high:
                     type: boolean
         '400':
-          description: Invalid request body (bad pin values, non-dict pins, etc.)
+          description: >-
+            Invalid request body — non-dict pins; a non-whole-number or
+            refused GPIO with a named reason (only 1-22, 26, 27 and 28 are
+            assignable: GP0 is reserved for the force-provision jumper,
+            GP23-GP25 and GP29 for the CYW43439 wireless chip); or a GPIO
+            the request would leave assigned to two devices after merging
+            with the current mapping (the error names the current holder).
           content:
             application/json:
               schema:
@@ -421,11 +462,18 @@ paths:
               properties:
                 pins:
                   type: object
+                  description: >-
+                    GPIO assignments per device role. Assignable user
+                    GPIOs are 1-22, 26, 27 and 28; GP0 is reserved for the
+                    force-provision jumper (read at every boot), GP23-GP25
+                    and GP29 are reserved for the CYW43439 wireless chip.
+                    Each value must be a whole number; refused values
+                    return 400 with the named reason.
                   properties:
-                    dht:        { type: integer, minimum: 1, maximum: 29 }
-                    humidifier: { type: integer, minimum: 1, maximum: 29 }
-                    fan:        { type: integer, minimum: 1, maximum: 29 }
-                    heater:     { type: integer, minimum: 1, maximum: 29 }
+                    dht:        { type: integer }
+                    humidifier: { type: integer }
+                    fan:        { type: integer }
+                    heater:     { type: integer }
                 active_high:
                   type: boolean
             example:
@@ -457,6 +505,10 @@ paths:
         keys present in the request body are applied; omitted relays
         keep their current state. At least one key is required.
         Updates min-runtime tracking for consistency with the control loop.
+        The applied fan and humidifier states persist to flash — they are
+        restored on reboot when the control loop is off. The heater never
+        persists: it always comes back OFF after a reboot. A flash-write
+        failure is logged on the unit and does not fail the request.
       responses:
         '200':
           description: Outputs updated
@@ -541,7 +593,14 @@ paths:
       description: >-
         Enable or disable the hysteresis control loop. When disabled,
         all relays are turned off immediately (relays_off) and
-        min-runtime tracking is reset.
+        min-runtime tracking is reset. The enabled state persists to
+        flash — it survives reboot: after a reboot the loop comes back
+        in the state it was left in. When the loop was left off, the
+        persisted hand-set fan and humidifier states are restored too
+        (the heater always comes back OFF); when it was left on, no
+        relay state is restored and the loop drives the relays from
+        the persisted setpoints. A flash-write failure is logged on the
+        unit and does not fail the request.
       responses:
         '200':
           description: Control loop state updated
@@ -578,12 +637,33 @@ paths:
             example:
               enabled: false
   /provision:
+    get:
+      summary: Wi-Fi setup form
+      description: >-
+        Serves the HTML Wi-Fi credential setup form (app/provision.html,
+        Content-Type: text/html) in both operating modes, so the
+        destination is a stable URL linked from the unit page's offline
+        banner. The form submits to POST /provision below, which stays
+        mode-guarded: on a connected (STA) unit the form loads but its
+        submission is rejected with 403 before any configuration is
+        written or a reboot is scheduled.
+      responses:
+        '200':
+          description: HTML Wi-Fi setup form
+          content:
+            text/html:
+              schema:
+                type: string
+      tags:
+        - provisioning
     post:
-      summary: Provision Wi-Fi credentials (AP mode only)
+      summary: Provision Wi-Fi credentials (offline (AP) mode only)
       description: >-
         Accepts Wi-Fi credentials, writes them to config.json, and
-        schedules a reboot in 2 seconds. Only available when the unit
-        is in AP provisioning mode.
+        schedules a reboot in 2 seconds. Only available while the unit
+        runs in the offline (AP) operating mode: on a connected (STA)
+        unit the request is rejected with 403 before any configuration
+        is written or a reboot is scheduled.
       requestBody:
         required: true
         content:
@@ -655,20 +735,50 @@ paths:
                   summary: Missing SSID
                   value:
                     error: wifi.ssid is required
+        '403':
+          description: Not in the offline (AP) operating mode (rejected before any config write or reboot)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [false]
+                  error:
+                    type: string
+              examples:
+                sta_mode:
+                  summary: Called while the unit runs in STA mode
+                  value:
+                    ok: false
+                    error: provisioning is only available in AP mode
       tags:
         - provisioning
   /:
     get:
       summary: Get all the system's current parameters
       description: >-
-        In STA mode returns a full JSON snapshot of system state.
-        In AP provisioning mode returns an HTML setup form
-        (Content-Type: text/html) — see POST /provision.
+        Returns a full JSON snapshot of system state — including the
+        additive `hub` object — in every operating mode. Content
+        negotiation (strict predicate, both modes): when the request's
+        Accept header contains text/html AND does not contain
+        application/json, the unit's status-and-control page
+        (Content-Type: text/html, same as GET /ui, including its
+        same-origin static assets) is returned instead of JSON. Clients
+        whose Accept mentions application/json — the hub's axios poll
+        sends "application/json, text/plain, */*" — always receive
+        JSON. So the unit page is the landing page offline as well as
+        connected; while offline the unit is still regulating against
+        its targets and the page shows an offline banner linking to the
+        Wi-Fi setup form at GET /provision.
       responses:
         '200':
           description: >-
-            Full system snapshot (STA mode, application/json) or
-            HTML provisioning form (AP mode, text/html).
+            Full system snapshot (application/json) or the unit
+            status-and-control page (text/html when the Accept predicate
+            above is met) — the same content negotiation in both
+            operating modes.
           content:
             application/json:
               schema:
@@ -737,6 +847,17 @@ paths:
                           hostname:
                             type: string
                             nullable: true
+                  firmware_version:
+                    type: string
+                    description: Firmware version (SemVer, from _SOFTWARE_VERSION); mirrors system.software.version
+                  api_version:
+                    type: integer
+                    enum: [1]
+                    description: >-
+                      Pico↔Server REST contract generation; bumped only on a
+                      breaking contract change (endpoint removed/renamed,
+                      incompatible request/response shape, changed semantics).
+                      Additive changes do not bump it.
                   health:
                     type: object
                     description: Same as GET /health (without uptime)
@@ -789,7 +910,7 @@ paths:
                             description: Whether the daily scheduled reboot is enabled
                           hour:
                             type: integer
-                            description: Target hour for scheduled reboot (0-23, local time)
+                            description: Target hour for scheduled reboot (0-23, local time = UTC + reboot.ntp_tz_offset_hours; 0 means UTC)
                           minute:
                             type: integer
                             description: Target minute for scheduled reboot (0-59)
@@ -848,10 +969,103 @@ paths:
                   control_loop_enabled:
                     type: boolean
                     description: Whether the hysteresis control loop is currently enabled
+                  hub:
+                    type: object
+                    description: >-
+                      Hub-connection state (additive). `configured` is
+                      whether config.json carries a hub_url at all.
+                      `connected` means the hub acknowledged this unit's
+                      MOST RECENT announce (the announce is sent at boot/
+                      reboot and retried with backoff) — the unit never
+                      pings the hub between announcements, so this is NOT
+                      live hub reachability and cannot reflect a hub
+                      outage. Written only by the announce task.
+                    properties:
+                      configured:
+                        type: boolean
+                      connected:
+                        type: boolean
             text/html:
               schema:
                 type: string
-                description: HTML provisioning form (AP mode only)
+                description: >-
+                  The unit status-and-control page — the same response
+                  shape as GET /ui — served in both operating modes when
+                  the browser Accept predicate above is met.
+      tags:
+        - monitoring
+  /ui:
+    get:
+      summary: Unit status and control page
+      description: >-
+        Self-documenting HTML page served by the unit itself, always
+        text/html in both operating modes — the same unit page that
+        GET / serves to HTML browsers, kept as a stable alias for
+        existing links and bookmarks. STA mode: full status and
+        control (identity, board condition, climate and outputs,
+        controls, devices, PIN mapping, hub state, reboot). Offline
+        (AP) mode: the same page with an offline banner — it stays
+        fully operable because the control loop runs offline, regulating
+        against the held targets (targets, loop switch, devices and pin
+        mapping are accepted and persist; the reboot card is shown). The
+        file is hand-authored (app/unit.html) and served from firmware
+        memory, and
+        loads same-origin static assets — GET /static/unit.js (script)
+        and GET /static/favicon.svg (icon) — served by this unit itself.
+        There is no CDN and no third-party resource, so the page still
+        works fully offline on the unit's own network.
+      responses:
+        '200':
+          description: HTML unit page
+          content:
+            text/html:
+              schema:
+                type: string
+      tags:
+        - monitoring
+  /static/{filename}:
+    get:
+      summary: Unit page static assets
+      description: >-
+        Same-origin static page assets for the unit page and the offline
+        Wi-Fi setup form (app/static/). GET /static/unit.js serves the
+        unit page's JavaScript as application/javascript;
+        GET /static/favicon.svg serves the Mushroom Pi icon as
+        image/svg+xml (referenced by both pages' `rel=icon` links).
+        Streamed from flash in 1 KB chunks by Microdot's send_file, with
+        Cache-Control: max-age=0. This Microdot build has no ETag or
+        If-None-Match/304 support, so a browser cannot cheaply revalidate
+        a copy it holds — hence assets are re-fetched on every load and no
+        version query string is published: a reflash is picked up on the
+        next load rather than the browser serving the previous firmware's
+        JS for an hour. The filename path parameter is constrained to the
+        complete asset set (unit.js, favicon.svg) — no open wildcard is
+        published. If the asset is missing from flash the handler
+        returns 404 with {"ok": false, "error": "static asset missing"}.
+        Page-asset surface only: neither the hub nor the server consumes
+        these paths.
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          description: The static asset to serve (the complete closed set).
+          schema:
+            type: string
+            enum:
+              - unit.js
+              - favicon.svg
+      responses:
+        '200':
+          description: >-
+            Static asset — unit page JavaScript (application/javascript)
+            or SVG icon (image/svg+xml), depending on filename
+          content:
+            application/javascript:
+              schema:
+                type: string
+            image/svg+xml:
+              schema:
+                type: string
       tags:
         - monitoring
   /reboot:
@@ -912,3 +1126,62 @@ paths:
                     error: "type must be 'soft' or 'hard'"
       tags:
         - system
+components:
+  schemas:
+    AnnouncePayload:
+      description: >-
+        Presence payload the unit POSTs to the *server's* announce
+        endpoint (POST /v1/pico-units/announce) on boot and on runtime
+        re-announce (Wi-Fi reconnect). The unit serves no such path
+        itself, so this out-of-band payload lives here instead of under
+        paths:. mushpi-mock mirrors this payload and the server's
+        AnnouncePicoUnitDto consumes it.
+      type: object
+      required: [handle]
+      properties:
+        handle:
+          type: string
+          nullable: true
+          description: Device name from config.json (matches hub handle)
+        ip:
+          type: string
+          nullable: true
+          description: Wi-Fi IP address
+        mac:
+          type: string
+          nullable: true
+          description: Wi-Fi MAC address (colon-separated hex)
+        port:
+          type: integer
+          nullable: true
+          description: API port from config.json
+        micropython_version:
+          type: string
+          description: MicroPython build string (mirrors system.micropython.build)
+        firmware_version:
+          type: string
+          description: >-
+            Firmware version (SemVer, from _SOFTWARE_VERSION); mirrors
+            system.software.version
+        api_version:
+          type: integer
+          enum: [1]
+          description: >-
+            Pico↔Server REST contract generation; bumped only on a
+            breaking contract change (endpoint removed/renamed,
+            incompatible request/response shape, changed semantics).
+            Additive changes do not bump it.
+        board:
+          type: string
+          nullable: true
+          description: Board description (e.g. "Raspberry Pi Pico W with RP2040")
+        board_total_mem_byte:
+          type: integer
+          description: Total heap in bytes (mirrors health.mem.total)
+        board_total_fs_byte:
+          type: integer
+          description: Total filesystem size in bytes (mirrors health.fs.total)
+        board_cpu_freq_mhz:
+          type: integer
+          nullable: true
+          description: CPU clock frequency in MHz

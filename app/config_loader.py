@@ -4,7 +4,7 @@ try:
 except ImportError:
     import uos as os
 
-# Units ship with empty SSID — first boot enters AP provisioning mode
+# Units ship with empty SSID — first boot enters the offline (AP) mode
 _DEFAULT = {
     "wifi": {"ssid": "", "password": "", "networks": []},
     "hub_url": "",
