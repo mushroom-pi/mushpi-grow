@@ -149,7 +149,7 @@ Details:
 
 ### Version constants (`app/state.py`)
 
-- **`_SOFTWARE_VERSION`** is the firmware version's single source of truth (`GET /system`, `GET /`). Bump it only on release (`main`), never during `dev`; every bump keeps `spec/openapi.yaml` `info.version` and `mushpi-mock` in sync.
+- **`_SOFTWARE_VERSION`** is the firmware version's single source of truth (`GET /system`, `GET /`). Bump it on `dev` as the **final commit of a release cycle** — never mid-cycle, and never on `main` after the merge, so the reviewed release PR *is* the shipped tree. Every bump keeps `spec/openapi.yaml` `info.version` in sync in the same commit (plus its cosmetic version example), and obliges a matching `mushpi-mock` bump in the same release — grow first, then `src/mushpi_mock/VERSION` + `state.py::_SOFTWARE_VERSION`; `mushpi-mock/scripts/check-version-alignment.sh` fails until all three agree. `_API_VERSION` is the contract generation, not a release number: it moves only on a breaking Pico↔Server change. Neither is `app/runtime_state.py::_VERSION`, which is the on-flash `runtime.json` **schema** version.
 - **`_API_VERSION`** (same file) is the Pico↔Server contract generation — bump only on breaking changes. Any `dev` bump needs a matching ≥ MINOR `_SOFTWARE_VERSION` bump.
 
 ### RAM budget

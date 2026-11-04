@@ -3,7 +3,7 @@ import utime as time
 # ── Software version ──────────────────────────────────────────────
 # Bump on every release.  Single source of truth for the firmware
 # version (returned by GET /system and GET /).
-_SOFTWARE_VERSION = "0.8.4"
+_SOFTWARE_VERSION = "0.9.0"
 
 # ── API contract version ──────────────────────────────────────────
 # Pico↔Server REST contract generation.  Bump ONLY on a breaking change
