@@ -30,6 +30,8 @@ Hub announcements need **no** HTTP client library: `app/announce.py` speaks the 
 
 ## How to use
 
+See instructions to [set up](https://mushroom-pi.mintlify.site/pico-units/firmware) and [use](https://mushroom-pi.mintlify.site/pico-units) this firmware in the project's [official documentation](https://mushroom-pi.mintlify.site).
+
 ### The three ways a unit runs
 
 A unit regulates its climate the same way in every configuration — the only difference is where you look at it and what you get on top. There are three:
@@ -59,7 +61,7 @@ For `<device_name>.local` mDNS resolution to work (so you can reach the unit at 
 
 If the firmware is too old, the boot sequence prints a warning referring you here. The DHCP hostname and the REST API on the unit's IP still work regardless.
 
-**Download v1.26.0 firmware**: [RPI_PICO2_W-20250809-v1.26.0.uf2](https://micropython.org/resources/firmware/RPI_PICO2_W-20250809-v1.26.0.uf2)  
+**Download v1.26.0 firmware**: [RPI_PICO2_W-20250809-v1.26.0.uf2](https://micropython.org/resources/firmware/RPI_PICO2_W-20250809-v1.26.0.uf2)
 **All releases**: https://micropython.org/download/RPI_PICO2_W/
 
 ### Unit status and control page
